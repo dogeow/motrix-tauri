@@ -141,7 +141,9 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
               onChange={(event) => setUris(event.target.value)}
               placeholder={"每行一个链接，例如：\nhttps://example.com/file.zip\nmagnet:?xt=urn:btih:…"}
               rows={5}
-              className="resize-none font-mono text-xs"
+              // break-all fills each line with the URL instead of leaving a
+              // near-empty first line when it wraps at "magnet:?".
+              className="resize-none font-mono text-xs break-all"
             />
           </TabsContent>
 
