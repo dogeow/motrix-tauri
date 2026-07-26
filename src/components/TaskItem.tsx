@@ -40,6 +40,7 @@ import {
   taskName,
   taskProgress,
 } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { Aria2Task } from "@/lib/types";
 
@@ -81,8 +82,8 @@ export function TaskItem({
   const handleCopy = async () => {
     try {
       const copied = await copyTaskLink(task);
-      if (copied) toast.success("链接已复制");
-      else toast.info("该任务没有可复制的链接");
+      if (copied) toast.success(t("task.linkCopied"));
+      else toast.info(t("task.noLink"));
     } catch (error) {
       toastError(error);
     }
@@ -91,7 +92,7 @@ export function TaskItem({
   const handleRetry = async () => {
     try {
       await retryTask(task);
-      toast.success("已重新加入队列");
+      toast.success(t("task.requeued"));
     } catch (error) {
       toastError(error);
     }
@@ -111,8 +112,12 @@ export function TaskItem({
     if (isBt && Number(task.uploadSpeed) > 0) {
       meta.push(`↑ ${formatSpeed(task.uploadSpeed)}`);
     }
-    if (!seeding) meta.push(`剩余 ${formatEta(task)}`);
-    if (isBt) meta.push(`${task.numSeeders ?? 0}/${task.connections} 连接`);
+    if (!seeding) meta.push(t("task.eta", { eta: formatEta(task) }));
+    if (isBt) meta.push(
+      t("task.connections", {
+        count: `${task.numSeeders ?? 0}/${task.connections}`,
+      })
+    );
   }
 
   return (
@@ -157,7 +162,7 @@ export function TaskItem({
             onCheckedChange={(checked) =>
               onSelectedChange(task, checked === true)
             }
-            aria-label={`选择 ${name}`}
+            aria-label={t("task.select", { name })}
           />
         </div>
       </div>
@@ -169,12 +174,12 @@ export function TaskItem({
           </span>
           {seeding && (
             <Badge variant="secondary" className="shrink-0">
-              做种中
+              {t("status.seeding")}
             </Badge>
           )}
           {paused && (
             <Badge variant="outline" className="shrink-0">
-              已暂停
+              {t("status.paused")}
             </Badge>
           )}
         </div>
@@ -208,8 +213,8 @@ export function TaskItem({
             size="icon"
             className="size-8 hover:text-foreground"
             onClick={() => void handleRetry()}
-            aria-label="重试"
-            title="重试"
+            aria-label={t("common.retry")}
+            title={t("common.retry")}
           >
             <RotateCcw className="size-4" />
           </Button>
@@ -220,8 +225,8 @@ export function TaskItem({
             size="icon"
             className="size-8 hover:text-foreground"
             onClick={() => void handleToggle()}
-            aria-label={running ? "暂停" : "开始"}
-            title={running ? "暂停" : "开始"}
+            aria-label={running ? t("common.pause") : t("common.start")}
+            title={running ? t("common.pause") : t("common.start")}
           >
             {running ? <Pause className="size-4" /> : <Play className="size-4" />}
           </Button>
@@ -231,8 +236,8 @@ export function TaskItem({
           size="icon"
           className="size-8 hover:text-foreground"
           onClick={() => void revealTask(task).catch(toastError)}
-          aria-label="打开所在文件夹"
-          title="打开所在文件夹"
+          aria-label={t("common.reveal")}
+          title={t("common.reveal")}
         >
           <FolderOpen className="size-4" />
         </Button>
@@ -242,26 +247,26 @@ export function TaskItem({
               variant="ghost"
               size="icon"
               className="size-8 hover:text-foreground"
-              aria-label="更多操作"
+              aria-label={t("common.more")}
             >
               <EllipsisVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => onInspect(task)}>
-              <Info className="size-4" /> 查看详情
+              <Info className="size-4" /> {t("task.detail")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => void handleCopy()}>
-              <Copy className="size-4" /> 复制链接
+              <Copy className="size-4" /> {t("common.copy")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => void revealTask(task).catch(toastError)}
             >
-              <FolderOpen className="size-4" /> 打开所在文件夹
+              <FolderOpen className="size-4" /> {t("common.reveal")}
             </DropdownMenuItem>
             {errored && (
               <DropdownMenuItem onClick={() => void handleRetry()}>
-                <RotateCcw className="size-4" /> 重试
+                <RotateCcw className="size-4" /> {t("common.retry")}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
@@ -269,7 +274,7 @@ export function TaskItem({
               variant="destructive"
               onClick={() => onRemove(task)}
             >
-              <Trash2 className="size-4" /> 删除任务
+              <Trash2 className="size-4" /> {t("task.remove")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

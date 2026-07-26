@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { aria2, useAppStore } from "@/store/app";
 import { taskOptions, useSettingsStore } from "@/store/settings";
 import { taskFilePath, taskName } from "./format";
+import { t } from "./i18n";
 import type {
   Aria2File,
   Aria2Options,
@@ -78,7 +79,7 @@ export async function addTargets(targets: string[]): Promise<number> {
 export async function pickTorrentFile(): Promise<string | null> {
   const selected = await open({
     multiple: false,
-    filters: [{ name: "种子文件", extensions: ["torrent"] }],
+    filters: [{ name: t("add.tabTorrent"), extensions: ["torrent"] }],
   });
   return typeof selected === "string" ? selected : null;
 }
@@ -194,7 +195,7 @@ export async function copyTaskLink(task: Aria2Task): Promise<boolean> {
 /** Re-queue a failed task from its original URI, dropping the dead record. */
 export async function retryTask(task: Aria2Task): Promise<void> {
   const uri = task.files[0]?.uris[0]?.uri;
-  if (!uri) throw new Error("该任务没有可重试的链接");
+  if (!uri) throw new Error(t("task.noRetryLink"));
   await aria2().call("addUri", [uri], { ...newTaskOptions(), dir: task.dir });
   try {
     await aria2().call("removeDownloadResult", task.gid);
@@ -255,13 +256,15 @@ const TRACKER_SOURCE =
 export async function updateTrackers(): Promise<number> {
   const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
   const response = await tauriFetch(TRACKER_SOURCE, { method: "GET" });
-  if (!response.ok) throw new Error(`拉取 tracker 失败：HTTP ${response.status}`);
+  if (!response.ok) {
+    throw new Error(t("tracker.fetchFailed", { status: response.status }));
+  }
 
   const list = (await response.text())
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (list.length === 0) throw new Error("tracker 列表为空");
+  if (list.length === 0) throw new Error(t("tracker.empty"));
 
   const joined = list.join(",");
   await useSettingsStore.getState().setTrackers(joined);

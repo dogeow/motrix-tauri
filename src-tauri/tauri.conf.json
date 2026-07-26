@@ -31,6 +31,12 @@
       "desktop": {
         "schemes": ["magnet", "motrix"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMkRCRTVGRDhBMTBCMzcKUldRM0M2SFlYNzR0Y0xwb1N6WFZhWllqWldRbHRJbUtRSkRRRGdjdlR5Y3h3ZGJGQlNIVlc5OEQK",
+      "endpoints": [
+        "https://github.com/dogeow/motrix-tauri/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {

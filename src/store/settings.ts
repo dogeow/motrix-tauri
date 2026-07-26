@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import { aria2 } from "./app";
+import { setLocale, type LocaleSetting } from "@/lib/i18n";
 import type { Aria2Options } from "@/lib/types";
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -23,6 +24,7 @@ export interface Settings {
   watchClipboard: boolean;
   autoUpdateTrackers: boolean;
   theme: ThemeMode;
+  language: LocaleSetting;
   autostart: boolean;
 }
 
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   watchClipboard: false,
   autoUpdateTrackers: true,
   theme: "system",
+  language: "system",
   autostart: false,
 };
 
@@ -94,15 +97,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     store = await load(STORE_FILE, { autoSave: true });
     const saved = await store.get<Partial<Settings>>("settings");
     const trackers = (await store.get<string>(TRACKER_KEY)) ?? "";
-    set({
-      settings: { ...DEFAULT_SETTINGS, ...saved },
-      trackers,
-      loaded: true,
-    });
+    const settings = { ...DEFAULT_SETTINGS, ...saved };
+    setLocale(settings.language);
+    set({ settings, trackers, loaded: true });
   },
 
   async update(patch) {
     const settings = { ...get().settings, ...patch };
+    setLocale(settings.language);
     set({ settings });
     await store?.set("settings", settings);
     await get().syncToEngine();

@@ -17,7 +17,7 @@ fn get_engine_info(state: tauri::State<engine::EngineState>) -> Result<engine::E
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "下载引擎尚未启动".into())
+        .ok_or_else(|| "engine has not started yet".into())
 }
 
 #[tauri::command]
@@ -165,6 +165,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--opened-at-login"]),

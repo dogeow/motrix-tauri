@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { addTargets, pauseAll, resumeAll, tellStatus, toastError } from "./actions";
 import { formatSpeed, taskName } from "./format";
+import { t } from "./i18n";
 import { onAria2Notification, useAppStore } from "@/store/app";
 import { useSettingsStore } from "@/store/settings";
 
@@ -22,7 +23,7 @@ async function handleTargets(targets: string[]): Promise<void> {
   if (targets.length === 0) return;
   try {
     const added = await addTargets(targets);
-    if (added > 0) toast.success(`已添加 ${added} 个任务`);
+    if (added > 0) toast.success(t("add.added", { count: added }));
   } catch (error) {
     toastError(error);
   }
@@ -48,10 +49,10 @@ async function wireTrayCommands(): Promise<Cleanup> {
 
 async function wireEngineEvents(): Promise<Cleanup> {
   const down = await listen<string>("engine-down", (event) => {
-    toast.error(`下载引擎断开：${event.payload}`, { id: "engine" });
+    toast.error(t("engine.down", { reason: event.payload }), { id: "engine" });
   });
   const started = await listen("engine-started", () => {
-    toast.success("下载引擎已就绪", { id: "engine" });
+    toast.success(t("engine.ready"), { id: "engine" });
     void useSettingsStore.getState().syncToEngine();
   });
   return () => {
@@ -68,7 +69,7 @@ async function wireDragDrop(): Promise<Cleanup> {
       /\.torrent$/i.test(path)
     );
     if (paths.length === 0) {
-      toast.info("只支持拖入 .torrent 文件");
+      toast.info(t("add.dropOnlyTorrent"));
       return;
     }
     void handleTargets(paths);
@@ -94,9 +95,12 @@ function wireClipboard(): Cleanup {
       .tasks.some((task) => task.files[0]?.uris[0]?.uri === text);
     if (alreadyQueued) return;
 
-    toast("剪贴板里发现下载链接", {
+    toast(t("clipboard.found"), {
       description: text.length > 60 ? `${text.slice(0, 60)}…` : text,
-      action: { label: "下载", onClick: () => void handleTargets([text]) },
+      action: {
+        label: t("clipboard.download"),
+        onClick: () => void handleTargets([text]),
+      },
     });
   }, CLIPBOARD_INTERVAL);
 
@@ -124,9 +128,9 @@ function wireCompletionNotices(): Cleanup {
       .then((task) => {
         const title = taskName(task);
         if (granted) {
-          sendNotification({ title: "下载完成", body: title });
+          sendNotification({ title: t("notify.complete"), body: title });
         } else {
-          toast.success(`下载完成：${title}`);
+          toast.success(t("notify.completeBody", { name: title }));
         }
       })
       .catch(() => {
@@ -153,8 +157,11 @@ function wireStatusIndicators(): Cleanup {
       });
     }
 
-    const total = active.reduce((sum, t) => sum + Number(t.totalLength), 0);
-    const done = active.reduce((sum, t) => sum + Number(t.completedLength), 0);
+    const total = active.reduce((sum, task) => sum + Number(task.totalLength), 0);
+    const done = active.reduce(
+      (sum, task) => sum + Number(task.completedLength),
+      0
+    );
     void invoke("set_progress", {
       progress: total > 0 ? (done / total) * 100 : null,
     });

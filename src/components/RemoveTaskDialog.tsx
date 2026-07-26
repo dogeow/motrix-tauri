@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { removeTask, toastError } from "@/lib/actions";
 import { taskName } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import type { Aria2Task } from "@/lib/types";
 
 interface RemoveTaskDialogProps {
@@ -56,10 +57,14 @@ export function RemoveTaskDialog({
         }
       }
       if (failed > 0) {
-        toast.warning(`已删除 ${targets.length - failed} 个，${failed} 个失败`);
+        toast.warning(
+          t("remove.partial", { done: targets.length - failed, failed })
+        );
       } else {
         toast.success(
-          deleteFiles ? "任务和文件已删除" : `已删除 ${targets.length} 个任务`
+          deleteFiles
+            ? t("remove.doneWithFiles")
+            : t("remove.done", { count: targets.length })
         );
       }
     } catch (error) {
@@ -78,13 +83,13 @@ export function RemoveTaskDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>删除任务</AlertDialogTitle>
+          <AlertDialogTitle>{t("remove.title")}</AlertDialogTitle>
           <AlertDialogDescription>
             {targets.length > 1 ? (
-              `确定要删除选中的 ${targets.length} 个任务吗？`
+              t("remove.confirmMany", { count: targets.length })
             ) : (
               <>
-                确定要删除以下任务吗？
+                {t("remove.confirmOne")}
                 {/* Task names can be long unbroken strings (magnet hashes),
                     so force wrapping and cap the height. */}
                 <span
@@ -104,13 +109,13 @@ export function RemoveTaskDialog({
             onCheckedChange={(checked) => setDeleteFiles(checked === true)}
           />
           <Label htmlFor="remove-delete-files" className="font-normal">
-            同时删除文件（移入回收站）
+            {t("remove.withFiles")}
           </Label>
         </div>
         <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction onClick={() => void handleConfirm()}>
-            删除
+            {t("common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

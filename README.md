@@ -47,9 +47,34 @@ npm run tauri build
 - Tracker 列表自动从 ngosang/trackerslist 更新
 - aria2 崩溃后自动重启（指数退避），RPC 端口与密钥在整个运行期固定
 
+## 国际化
+
+界面支持简体中文和英文，默认跟随系统语言，可在「偏好设置 → 应用 → 语言」切换。
+文案集中在 `src/lib/i18n/`：`zh-CN.ts` 是 key 的唯一来源，`en.ts` 用
+`Record<TranslationKey, string>` 约束，漏翻会直接编译报错。
+
+## 发布与自动更新
+
+更新包用 minisign 签名，公钥已写进 `tauri.conf.json`，私钥在
+`~/.tauri/motrix-tauri.key`（**不在仓库里，务必备份——丢了就无法给已安装的版本推更新**）。
+
+首次发布前，在 GitHub 仓库的 Settings → Secrets → Actions 添加：
+
+- `TAURI_SIGNING_PRIVATE_KEY`：`~/.tauri/motrix-tauri.key` 的**文件内容**
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：留空（生成时未设密码）
+
+之后打 tag 即可触发 `.github/workflows/release.yml` 构建四个平台并生成
+`latest.json`：
+
+```bash
+npm version patch && git push --follow-tags
+```
+
+工作流产出的是**草稿** release，确认无误后手动发布。更新端点为
+`https://github.com/dogeow/motrix-tauri/releases/latest/download/latest.json`
+——注意仓库目前是 private，**私有仓库的 release 资源需要鉴权，更新会 404**，
+发布前需要把仓库改成 public，或把端点换成自己的托管地址。
+
 ## 尚未实现
 
-- **自动更新**：需要先用 `npm run tauri signer generate` 生成 minisign 密钥对，
-  并准备好托管 `latest.json` 的地址，之后才能接 `tauri-plugin-updater`
-- **国际化**：界面目前是硬编码中文，没有引入 i18n 框架
 - 批量重命名、下载完成后自动执行脚本

@@ -232,7 +232,7 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
                     if state.shutting_down.load(Ordering::SeqCst) {
                         break;
                     }
-                    let reason = format!("aria2 意外退出（code {:?}）", payload.code);
+                    let reason = format!("aria2 exited unexpectedly (code {:?})", payload.code);
                     eprintln!("[aria2] {reason}");
                     *state.error.lock().unwrap() = Some(reason.clone());
                     let _ = handle.emit("engine-down", reason);

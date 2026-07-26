@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { Aria2Client } from "@/lib/aria2";
+import { t } from "@/lib/i18n";
 import type { Aria2Task, EngineInfo, GlobalStat } from "@/lib/types";
 
 export type Category = "all" | "active" | "waiting" | "stopped";
@@ -11,7 +12,7 @@ let pollId: ReturnType<typeof setInterval> | null = null;
 
 /** The singleton aria2 client. Only valid after init() resolves. */
 export function aria2(): Aria2Client {
-  if (!client) throw new Error("aria2 客户端尚未初始化");
+  if (!client) throw new Error(t("engine.notReady"));
   return client;
 }
 

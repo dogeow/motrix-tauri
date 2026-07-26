@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { Aria2Task, Aria2Uri } from "./types";
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"];
@@ -58,7 +59,9 @@ export function taskName(task: Aria2Task): string {
     if (dn) return dn;
 
     const hash = suffix || task.infoHash || "";
-    return hash ? `磁力链接（${hash.slice(0, 8)}…）` : "磁力链接（读取元数据中）";
+    return hash
+      ? t("task.magnet", { hash: hash.slice(0, 8) })
+      : t("task.magnetPending");
   }
 
   if (file?.path) {

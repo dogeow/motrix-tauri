@@ -21,6 +21,7 @@ import {
   pickTorrentFile,
   toastError,
 } from "@/lib/actions";
+import { t } from "@/lib/i18n";
 import { useAppStore } from "@/store/app";
 
 interface AddTaskDialogProps {
@@ -76,7 +77,7 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
           .map((line) => line.trim())
           .filter(Boolean);
         if (list.length === 0) {
-          toast.info("请输入至少一个下载链接");
+          toast.info(t("add.needUri"));
           return;
         }
         const { added, failed } = await addUris(list, dir || undefined);
@@ -86,21 +87,25 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
           setUris(failed.map((item) => item.uri).join("\n"));
           if (added > 0) {
             toast.warning(
-              `已添加 ${added} 个任务，${failed.length} 个失败：${failed[0].error}`
+              t("add.partial", {
+                added,
+                failed: failed.length,
+                error: failed[0].error,
+              })
             );
           } else {
-            toast.error(`添加失败：${failed[0].error}`);
+            toast.error(t("add.failed", { error: failed[0].error }));
           }
           return;
         }
-        toast.success(`已添加 ${added} 个任务`);
+        toast.success(t("add.added", { count: added }));
       } else {
         if (!torrentPath) {
-          toast.info("请选择种子文件");
+          toast.info(t("add.needTorrent"));
           return;
         }
         await addTorrent(torrentPath, dir || undefined);
-        toast.success("种子任务已添加");
+        toast.success(t("add.torrentAdded"));
       }
       reset();
       onOpenChange(false);
@@ -119,19 +124,17 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>新建任务</DialogTitle>
-          <DialogDescription>
-            支持 HTTP、HTTPS、FTP、磁力链接和种子文件
-          </DialogDescription>
+          <DialogTitle>{t("add.title")}</DialogTitle>
+          <DialogDescription>{t("add.description")}</DialogDescription>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(value) => setTab(value as "uri" | "torrent")}>
           <TabsList className="w-full">
             <TabsTrigger value="uri" className="flex-1">
-              下载链接
+              {t("add.tabUri")}
             </TabsTrigger>
             <TabsTrigger value="torrent" className="flex-1">
-              种子文件
+              {t("add.tabTorrent")}
             </TabsTrigger>
           </TabsList>
 
@@ -139,7 +142,7 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
             <Textarea
               value={uris}
               onChange={(event) => setUris(event.target.value)}
-              placeholder={"每行一个链接，例如：\nhttps://example.com/file.zip\nmagnet:?xt=urn:btih:…"}
+              placeholder={t("add.uriPlaceholder")}
               rows={5}
               // break-all fills each line with the URL instead of leaving a
               // near-empty first line when it wraps at "magnet:?".
@@ -154,13 +157,13 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
               className="flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-8 text-sm text-muted-foreground transition-colors hover:bg-accent/40"
             >
               <FileUp className="size-6" />
-              {torrentFileName ?? "点击选择 .torrent 文件"}
+              {torrentFileName ?? t("add.pickTorrent")}
             </button>
           </TabsContent>
         </Tabs>
 
         <div className="grid gap-2">
-          <Label htmlFor="download-dir">下载目录</Label>
+          <Label htmlFor="download-dir">{t("add.dir")}</Label>
           <div className="flex gap-2">
             <Input
               id="download-dir"
@@ -172,7 +175,7 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
               variant="outline"
               size="icon"
               onClick={() => void handlePickDir()}
-              title="选择目录"
+              title={t("common.chooseDir")}
             >
               <FolderOpen className="size-4" />
             </Button>
@@ -181,10 +184,10 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button onClick={() => void handleSubmit()} disabled={submitting}>
-            {submitting ? "提交中…" : "开始下载"}
+            {submitting ? t("add.submitting") : t("add.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>

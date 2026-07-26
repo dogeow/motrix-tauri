@@ -29,6 +29,8 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { pickDirectory, toastError, updateTrackers } from "@/lib/actions";
+import { checkForUpdate } from "@/lib/updater";
+import { LOCALE_NAMES, t, useTranslation, type LocaleSetting } from "@/lib/i18n";
 import { useAppStore } from "@/store/app";
 import { useSettingsStore, type ThemeMode } from "@/store/settings";
 
@@ -36,6 +38,9 @@ interface PreferencesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+/** Injected by Vite from package.json at build time. */
+const APP_VERSION = __APP_VERSION__;
 
 /** Rows share one label/control grid so every tab lines up. */
 function Row({
@@ -118,8 +123,11 @@ export function PreferencesDialog({
 }: PreferencesDialogProps) {
   const { settings, trackers, update, load } = useSettingsStore();
   const engine = useAppStore((state) => state.engine);
+  // Subscribing re-renders every label when the locale changes.
+  useTranslation();
   const [updatingTrackers, setUpdatingTrackers] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   useEffect(() => {
     if (open) void load();
@@ -178,7 +186,7 @@ export function PreferencesDialog({
     setUpdatingTrackers(true);
     try {
       const count = await updateTrackers();
-      toast.success(`已更新 ${count} 个 tracker`);
+      toast.success(t("prefs.trackersUpdated", { count }));
     } catch (error) {
       toastError(error);
     } finally {
@@ -190,9 +198,9 @@ export function PreferencesDialog({
     if (!engine) return;
     try {
       await writeText(
-        `http://127.0.0.1:${engine.rpcPort}/jsonrpc\n密钥: ${engine.rpcSecret}`
+        `http://127.0.0.1:${engine.rpcPort}/jsonrpc\n${engine.rpcSecret}`
       );
-      toast.success("RPC 地址和密钥已复制");
+      toast.success(t("prefs.rpcCopied"));
     } catch (error) {
       toastError(error);
     }
@@ -202,11 +210,20 @@ export function PreferencesDialog({
     setRestarting(true);
     try {
       await invoke("restart_engine");
-      toast.success("下载引擎已重启");
+      toast.success(t("engine.restarted"));
     } catch (error) {
       toastError(error);
     } finally {
       setRestarting(false);
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      await checkForUpdate();
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -216,30 +233,28 @@ export function PreferencesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>偏好设置</DialogTitle>
-          <DialogDescription>
-            并发与限速立即生效，其余选项应用于之后新建的任务
-          </DialogDescription>
+          <DialogTitle>{t("prefs.title")}</DialogTitle>
+          <DialogDescription>{t("prefs.description")}</DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="download">
           <TabsList className="w-full">
             <TabsTrigger value="download" className="flex-1">
-              下载
+              {t("prefs.tabDownload")}
             </TabsTrigger>
             <TabsTrigger value="bt" className="flex-1">
-              BT
+              {t("prefs.tabBt")}
             </TabsTrigger>
             <TabsTrigger value="network" className="flex-1">
-              网络
+              {t("prefs.tabNetwork")}
             </TabsTrigger>
             <TabsTrigger value="app" className="flex-1">
-              应用
+              {t("prefs.tabApp")}
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="download" className="mt-2 divide-y">
-            <Row label="默认下载目录">
+            <Row label={t("prefs.dir")}>
               <div className="flex items-center gap-2">
                 <span
                   className="max-w-52 truncate font-mono text-xs text-muted-foreground"
@@ -251,13 +266,13 @@ export function PreferencesDialog({
                   variant="outline"
                   size="icon"
                   onClick={() => void handlePickDir()}
-                  aria-label="选择下载目录"
+                  aria-label={t("common.chooseDir")}
                 >
                   <FolderOpen className="size-4" />
                 </Button>
               </div>
             </Row>
-            <Row label="最大同时下载数" hint="立即生效">
+            <Row label={t("prefs.concurrent")} hint={t("prefs.applyNow")}>
               <NumberInput
                 value={settings.maxConcurrentDownloads}
                 min={1}
@@ -265,7 +280,7 @@ export function PreferencesDialog({
                 onCommit={(value) => set("maxConcurrentDownloads", value)}
               />
             </Row>
-            <Row label="单服务器最大连接数" hint="应用于新任务">
+            <Row label={t("prefs.connections")} hint={t("prefs.applyNew")}>
               <NumberInput
                 value={settings.maxConnectionPerServer}
                 min={1}
@@ -273,7 +288,7 @@ export function PreferencesDialog({
                 onCommit={(value) => set("maxConnectionPerServer", value)}
               />
             </Row>
-            <Row label="单任务分片数" hint="应用于新任务">
+            <Row label={t("prefs.split")} hint={t("prefs.applyNew")}>
               <NumberInput
                 value={settings.split}
                 min={1}
@@ -281,13 +296,13 @@ export function PreferencesDialog({
                 onCommit={(value) => set("split", value)}
               />
             </Row>
-            <Row label="全局下载限速" hint="0 表示不限速，可用 512K / 2M">
+            <Row label={t("prefs.downLimit")} hint={t("prefs.downLimitHint")}>
               <SpeedInput
                 value={settings.maxOverallDownloadLimit}
                 onCommit={(value) => set("maxOverallDownloadLimit", value)}
               />
             </Row>
-            <Row label="全局上传限速" hint="0 表示不限速">
+            <Row label={t("prefs.upLimit")} hint={t("prefs.upLimitHint")}>
               <SpeedInput
                 value={settings.maxOverallUploadLimit}
                 onCommit={(value) => set("maxOverallUploadLimit", value)}
@@ -296,7 +311,7 @@ export function PreferencesDialog({
           </TabsContent>
 
           <TabsContent value="bt" className="mt-2 divide-y">
-            <Row label="做种比例" hint="达到后停止做种，0 表示一直做种">
+            <Row label={t("prefs.seedRatio")} hint={t("prefs.seedRatioHint")}>
               <NumberInput
                 value={settings.seedRatio}
                 min={0}
@@ -305,11 +320,11 @@ export function PreferencesDialog({
               />
             </Row>
             <Row
-              label="Tracker 列表"
+              label={t("prefs.trackers")}
               hint={
                 trackerCount > 0
-                  ? `已缓存 ${trackerCount} 个，来自 ngosang/trackerslist`
-                  : "尚未更新，正在使用内置列表"
+                  ? t("prefs.trackersCached", { count: trackerCount })
+                  : t("prefs.trackersEmpty")
               }
             >
               <Button
@@ -321,10 +336,10 @@ export function PreferencesDialog({
                 <RefreshCw
                   className={`size-4 ${updatingTrackers ? "animate-spin" : ""}`}
                 />
-                立即更新
+                {t("prefs.trackersUpdate")}
               </Button>
             </Row>
-            <Row label="启动时自动更新 Tracker">
+            <Row label={t("prefs.trackersAuto")}>
               <Switch
                 checked={settings.autoUpdateTrackers}
                 onCheckedChange={(checked) =>
@@ -335,7 +350,7 @@ export function PreferencesDialog({
           </TabsContent>
 
           <TabsContent value="network" className="mt-2 divide-y">
-            <Row label="BT 监听端口" hint="改动后需重启引擎">
+            <Row label={t("prefs.btPort")} hint={t("prefs.btPortHint")}>
               <NumberInput
                 value={settings.btPort}
                 min={1024}
@@ -344,8 +359,8 @@ export function PreferencesDialog({
               />
             </Row>
             <Row
-              label="UPnP 端口映射"
-              hint="让路由器把 BT 端口转发进来，提升连通性"
+              label={t("prefs.upnp")}
+              hint={t("prefs.upnpHint")}
             >
               <Switch
                 checked={settings.upnp}
@@ -353,8 +368,8 @@ export function PreferencesDialog({
               />
             </Row>
             <Row
-              label="固定 RPC 端口"
-              hint="填 0 为随机端口（更安全）。固定后密钥也会持久化，供浏览器扩展连接"
+              label={t("prefs.rpcPort")}
+              hint={t("prefs.rpcPortHint")}
             >
               <NumberInput
                 value={settings.rpcPort}
@@ -364,7 +379,7 @@ export function PreferencesDialog({
               />
             </Row>
             {engine && (
-              <Row label="当前 RPC 地址" hint="点击复制，可填入 AriaNg 等客户端">
+              <Row label={t("prefs.rpcAddress")} hint={t("prefs.rpcAddressHint")}>
                 <Button
                   variant="outline"
                   size="sm"
@@ -375,7 +390,7 @@ export function PreferencesDialog({
                 </Button>
               </Row>
             )}
-            <Row label="重启下载引擎" hint="应用端口相关改动">
+            <Row label={t("prefs.restartEngine")} hint={t("prefs.restartEngineHint")}>
               <Button
                 variant="outline"
                 size="sm"
@@ -385,51 +400,89 @@ export function PreferencesDialog({
                 <RotateCcw
                   className={`size-4 ${restarting ? "animate-spin" : ""}`}
                 />
-                立即重启
+                {t("prefs.restartNow")}
               </Button>
             </Row>
           </TabsContent>
 
           <TabsContent value="app" className="mt-2 divide-y">
-            <Row label="开机时启动">
+            <Row label={t("prefs.autostart")}>
               <Switch
                 checked={settings.autostart}
                 onCheckedChange={(checked) => void handleAutostart(checked)}
               />
             </Row>
-            <Row label="下载完成时通知">
+            <Row label={t("prefs.notify")}>
               <Switch
                 checked={settings.notifyOnComplete}
                 onCheckedChange={(checked) => set("notifyOnComplete", checked)}
               />
             </Row>
-            <Row label="监听剪贴板链接" hint="复制链接后提示一键下载">
+            <Row label={t("prefs.clipboard")} hint={t("prefs.clipboardHint")}>
               <Switch
                 checked={settings.watchClipboard}
                 onCheckedChange={(checked) => set("watchClipboard", checked)}
               />
             </Row>
-            <Row label="主题">
+            <Row label={t("prefs.theme")}>
               <Select
                 value={settings.theme}
                 onValueChange={(value) => set("theme", value as ThemeMode)}
               >
-                <SelectTrigger className="w-28">
+                <SelectTrigger className="w-32">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="system">跟随系统</SelectItem>
-                  <SelectItem value="light">浅色</SelectItem>
-                  <SelectItem value="dark">深色</SelectItem>
+                  <SelectItem value="system">{t("prefs.themeSystem")}</SelectItem>
+                  <SelectItem value="light">{t("prefs.themeLight")}</SelectItem>
+                  <SelectItem value="dark">{t("prefs.themeDark")}</SelectItem>
                 </SelectContent>
               </Select>
+            </Row>
+            <Row label={t("prefs.language")}>
+              <Select
+                value={settings.language}
+                onValueChange={(value) =>
+                  set("language", value as LocaleSetting)
+                }
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="system">
+                    {t("prefs.languageSystem")}
+                  </SelectItem>
+                  {Object.entries(LOCALE_NAMES).map(([code, name]) => (
+                    <SelectItem key={code} value={code}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+            <Row
+              label={t("prefs.checkUpdate")}
+              hint={t("prefs.checkUpdateHint", { version: APP_VERSION })}
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={checkingUpdate}
+                onClick={() => void handleCheckUpdate()}
+              >
+                <RefreshCw
+                  className={`size-4 ${checkingUpdate ? "animate-spin" : ""}`}
+                />
+                {t("prefs.checkNow")}
+              </Button>
             </Row>
           </TabsContent>
         </Tabs>
 
         <Separator />
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>完成</Button>
+          <Button onClick={() => onOpenChange(false)}>{t("common.done")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

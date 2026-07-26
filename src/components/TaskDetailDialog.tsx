@@ -21,6 +21,7 @@ import {
   toastError,
 } from "@/lib/actions";
 import { formatBytes, formatSpeed, taskName } from "@/lib/format";
+import { t } from "@/lib/i18n";
 import type { Aria2File, Aria2Peer, Aria2ServerEntry, Aria2Task } from "@/lib/types";
 
 interface TaskDetailDialogProps {
@@ -106,14 +107,14 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
   const handleSave = async () => {
     if (!gid) return;
     if (selection.size === 0) {
-      toast.info("至少要选择一个文件");
+      toast.info(t("detail.needOneFile"));
       return;
     }
     setSaving(true);
     try {
       await selectFiles(gid, [...selection].sort((a, b) => Number(a) - Number(b)));
       setDirty(false);
-      toast.success("已更新下载文件");
+      toast.success(t("detail.saved"));
     } catch (error) {
       toastError(error);
     } finally {
@@ -127,7 +128,7 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
     <Dialog open={task !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>任务详情</DialogTitle>
+          <DialogTitle>{t("detail.title")}</DialogTitle>
           <DialogDescription className="truncate">
             {task ? taskName(task) : ""}
           </DialogDescription>
@@ -136,15 +137,15 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
         <Tabs defaultValue="files">
           <TabsList className="w-full">
             <TabsTrigger value="files" className="flex-1">
-              文件 {files.length > 0 && files.length}
+              {t("detail.files")} {files.length > 0 && files.length}
             </TabsTrigger>
             {isBt && (
               <TabsTrigger value="peers" className="flex-1">
-                节点 {peers.length > 0 && peers.length}
+                {t("detail.peers")} {peers.length > 0 && peers.length}
               </TabsTrigger>
             )}
             <TabsTrigger value="servers" className="flex-1">
-              连接
+              {t("detail.servers")}
             </TabsTrigger>
           </TabsList>
 
@@ -153,7 +154,7 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
               <div className="divide-y">
                 {files.length === 0 && (
                   <p className="p-4 text-center text-xs text-muted-foreground">
-                    还没有文件信息
+                    {t("detail.noFiles")}
                   </p>
                 )}
                 {files.map((file) => (
@@ -164,7 +165,7 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
                         onCheckedChange={(checked) =>
                           toggle(file.index, checked === true)
                         }
-                        aria-label={`选择 ${fileName(file.path)}`}
+                        aria-label={t("task.select", { name: fileName(file.path) })}
                       />
                     )}
                     <div className="min-w-0 flex-1">
@@ -189,7 +190,7 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
             </ScrollArea>
             {multiFile && (
               <p className="mt-2 text-xs text-muted-foreground">
-                取消勾选的文件不会被下载。已下载的部分不会自动删除。
+                {t("detail.selectHint")}
               </p>
             )}
           </TabsContent>
@@ -199,16 +200,16 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
               <ScrollArea className="h-72 rounded-md border">
                 {peers.length === 0 ? (
                   <p className="p-4 text-center text-xs text-muted-foreground">
-                    暂时没有连接到节点
+                    {t("detail.noPeers")}
                   </p>
                 ) : (
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 text-muted-foreground backdrop-blur">
                       <tr>
-                        <th className="p-2 text-left font-medium">地址</th>
-                        <th className="p-2 text-right font-medium">下载</th>
-                        <th className="p-2 text-right font-medium">上传</th>
-                        <th className="p-2 text-right font-medium">类型</th>
+                        <th className="p-2 text-left font-medium">{t("detail.address")}</th>
+                        <th className="p-2 text-right font-medium">{t("detail.down")}</th>
+                        <th className="p-2 text-right font-medium">{t("detail.up")}</th>
+                        <th className="p-2 text-right font-medium">{t("detail.type")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y tabular-nums">
@@ -224,7 +225,7 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
                             {formatSpeed(peer.uploadSpeed)}
                           </td>
                           <td className="p-2 text-right text-muted-foreground">
-                            {peer.seeder === "true" ? "做种" : "下载"}
+                            {peer.seeder === "true" ? t("detail.seeder") : t("detail.leecher")}
                           </td>
                         </tr>
                       ))}
@@ -239,7 +240,7 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
             <ScrollArea className="h-72 rounded-md border">
               {servers.length === 0 ? (
                 <p className="p-4 text-center text-xs text-muted-foreground">
-                  没有活动的连接
+                  {t("detail.noServers")}
                 </p>
               ) : (
                 <div className="divide-y">
@@ -273,14 +274,18 @@ export function TaskDetailDialog({ task, onClose }: TaskDetailDialogProps) {
                 void reload();
               }}
             >
-              放弃更改
+              {t("detail.discard")}
             </Button>
           )}
           <Button
             onClick={() => (dirty ? void handleSave() : onClose())}
             disabled={saving}
           >
-            {dirty ? (saving ? "保存中…" : "保存选择") : "关闭"}
+            {dirty
+              ? saving
+                ? t("detail.saving")
+                : t("detail.save")
+              : t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

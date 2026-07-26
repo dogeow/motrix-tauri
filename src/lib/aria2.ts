@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -62,7 +64,7 @@ export class Aria2Client {
     return new Promise<T>((resolve, reject) => {
       const ws = this.ws;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        reject(new Error("尚未连接到下载引擎"));
+        reject(new Error(t("engine.notReady")));
         return;
       }
       const id = this.nextId++;
@@ -94,7 +96,7 @@ export class Aria2Client {
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.statusHandlers.forEach((handler) => handler(false));
-      this.rejectAll(new Error("与下载引擎的连接已断开"));
+      this.rejectAll(new Error(t("engine.disconnected")));
       if (!this.closed) {
         setTimeout(() => {
           if (!this.closed) this.open();

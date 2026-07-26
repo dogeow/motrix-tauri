@@ -48,6 +48,8 @@ import {
   updateTrackers,
 } from "@/lib/actions";
 import { formatSpeed, taskName } from "@/lib/format";
+import { t, useTranslation } from "@/lib/i18n";
+import { checkForUpdate } from "@/lib/updater";
 import { initIntegrations } from "@/lib/integrations";
 import type { Aria2Task, GlobalStat } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -59,35 +61,20 @@ const IS_MAC = navigator.userAgent.includes("Macintosh");
 
 type SortKey = "added" | "name" | "size" | "progress" | "speed";
 
-const SORT_LABEL: Record<SortKey, string> = {
-  added: "添加顺序",
-  name: "名称",
-  size: "大小",
-  progress: "进度",
-  speed: "速度",
-};
-
-const EMPTY_HINT: Record<Category, string> = {
-  all: "还没有任何任务",
-  active: "没有正在下载的任务",
-  waiting: "队列里没有等待中的任务",
-  stopped: "没有已完成或已停止的任务",
-};
+const SORT_KEYS: SortKey[] = ["added", "name", "size", "progress", "speed"];
 
 const CATEGORY_TABS: {
   value: Category;
-  label: string;
   count: (stat: GlobalStat) => number;
 }[] = [
   {
     value: "all",
-    label: "全部",
     count: (stat) =>
       Number(stat.numActive) + Number(stat.numWaiting) + Number(stat.numStopped),
   },
-  { value: "active", label: "下载中", count: (stat) => Number(stat.numActive) },
-  { value: "waiting", label: "等待中", count: (stat) => Number(stat.numWaiting) },
-  { value: "stopped", label: "已停止", count: (stat) => Number(stat.numStopped) },
+  { value: "active", count: (stat) => Number(stat.numActive) },
+  { value: "waiting", count: (stat) => Number(stat.numWaiting) },
+  { value: "stopped", count: (stat) => Number(stat.numStopped) },
 ];
 
 /** Follows the OS unless the user pinned a theme in preferences. */
@@ -158,6 +145,8 @@ function IconAction({
 
 export default function App() {
   useTheme();
+  // Subscribing re-renders every label when the locale changes.
+  useTranslation();
 
   const { connected, category, tasks, stat, initError, init, setCategory } =
     useAppStore();
@@ -184,6 +173,12 @@ export default function App() {
     return () => {
       void cleanup.then((teardown) => teardown());
     };
+  }, []);
+
+  // Stay quiet on launch unless an update is actually waiting.
+  useEffect(() => {
+    const timer = setTimeout(() => void checkForUpdate(true), 5000);
+    return () => clearTimeout(timer);
   }, []);
 
   // Refresh trackers once per launch, in the background.
@@ -235,8 +230,11 @@ export default function App() {
   ) => {
     const { done, failed } = await batch(selectedTasks, action);
     setSelected(new Set());
-    if (failed > 0) toast.warning(`${label} ${done} 个，${failed} 个失败`);
-    else toast.success(`已${label} ${done} 个任务`);
+    if (failed > 0) {
+      toast.warning(t("selection.batchPartial", { action: label, done, failed }));
+    } else {
+      toast.success(t("selection.batchDone", { action: label, count: done }));
+    }
   };
 
   return (
@@ -253,9 +251,9 @@ export default function App() {
           onValueChange={(value) => setCategory(value as Category)}
         >
           <TabsList>
-            {CATEGORY_TABS.map(({ value, label, count }) => (
+            {CATEGORY_TABS.map(({ value, count }) => (
               <TabsTrigger key={value} value={value}>
-                {label}
+                {t(`tabs.${value}`)}
                 {stat && count(stat) > 0 && (
                   <span className="ml-1 tabular-nums opacity-60">
                     {count(stat)}
@@ -271,7 +269,7 @@ export default function App() {
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索任务"
+            placeholder={t("toolbar.search")}
             className="h-8 pl-8 text-xs"
           />
           {query && (
@@ -279,7 +277,7 @@ export default function App() {
               type="button"
               onClick={() => setQuery("")}
               className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label="清除搜索"
+              aria-label={t("toolbar.clearSearch")}
             >
               <X className="size-3.5" />
             </button>
@@ -295,22 +293,22 @@ export default function App() {
                     variant="ghost"
                     size="icon"
                     className="size-8 text-muted-foreground hover:text-foreground"
-                    aria-label="排序方式"
+                    aria-label={t("toolbar.sort")}
                   >
                     <ArrowUpDown className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>排序方式</TooltipContent>
+              <TooltipContent>{t("toolbar.sort")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end">
-              {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
+              {SORT_KEYS.map((key) => (
                 <DropdownMenuCheckboxItem
                   key={key}
                   checked={sortKey === key}
                   onCheckedChange={() => setSortKey(key)}
                 >
-                  {SORT_LABEL[key]}
+                  {t(`sort.${key}`)}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
@@ -318,29 +316,29 @@ export default function App() {
 
           {stat && Number(stat.numStopped) > 0 && (
             <IconAction
-              label="清除已停止记录"
+              label={t("toolbar.purge")}
               onClick={() => void purgeStopped().catch(toastError)}
             >
               <Eraser className="size-4" />
             </IconAction>
           )}
           <IconAction
-            label="全部暂停"
+            label={t("toolbar.pauseAll")}
             onClick={() => void pauseAll().catch(toastError)}
           >
             <Pause className="size-4" />
           </IconAction>
           <IconAction
-            label="全部开始"
+            label={t("toolbar.resumeAll")}
             onClick={() => void resumeAll().catch(toastError)}
           >
             <Play className="size-4" />
           </IconAction>
-          <IconAction label="偏好设置" onClick={() => setPrefsOpen(true)}>
+          <IconAction label={t("toolbar.preferences")} onClick={() => setPrefsOpen(true)}>
             <Settings className="size-4" />
           </IconAction>
           <Button size="sm" className="ml-1.5" onClick={() => setAddOpen(true)}>
-            <Plus className="size-4" /> 新建任务
+            <Plus className="size-4" /> {t("toolbar.addTask")}
           </Button>
         </div>
       </header>
@@ -348,22 +346,22 @@ export default function App() {
       {selectedTasks.length > 0 && (
         <div className="flex shrink-0 items-center gap-2 border-b bg-accent/40 px-3 py-1.5 text-xs">
           <span className="text-muted-foreground">
-            已选中 {selectedTasks.length} 个任务
+            {t("selection.count", { count: selectedTasks.length })}
           </span>
           <div className="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => void runBatch("开始", resumeTask).catch(toastError)}
+              onClick={() => void runBatch(t("common.start"), resumeTask).catch(toastError)}
             >
-              <Play className="size-3.5" /> 开始
+              <Play className="size-3.5" /> {t("common.start")}
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => void runBatch("暂停", pauseTask).catch(toastError)}
+              onClick={() => void runBatch(t("common.pause"), pauseTask).catch(toastError)}
             >
-              <Pause className="size-3.5" /> 暂停
+              <Pause className="size-3.5" /> {t("common.pause")}
             </Button>
             <Button
               variant="ghost"
@@ -371,10 +369,10 @@ export default function App() {
               className="text-destructive hover:text-destructive"
               onClick={() => setRemoveTarget(selectedTasks[0])}
             >
-              <Trash2 className="size-3.5" /> 删除
+              <Trash2 className="size-3.5" /> {t("common.delete")}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-              取消选择
+              {t("selection.clear")}
             </Button>
           </div>
         </div>
@@ -384,7 +382,7 @@ export default function App() {
         {initError ? (
           <EmptyState
             icon={<CircleAlert className="size-6 text-destructive" />}
-            title="下载引擎启动失败"
+            title={t("engine.startFailed")}
             detail={initError}
             action={
               <Button
@@ -392,17 +390,17 @@ export default function App() {
                 size="sm"
                 onClick={() => window.location.reload()}
               >
-                <RotateCcw className="size-4" /> 重新连接
+                <RotateCcw className="size-4" /> {t("engine.reconnect")}
               </Button>
             }
           />
         ) : visible.length === 0 ? (
           <EmptyState
             icon={<Inbox className="size-6" />}
-            title={query ? "没有匹配的任务" : EMPTY_HINT[category]}
+            title={query ? t("empty.noMatch") : t(`empty.${category}`)}
             detail={
               !query && (category === "all" || category === "active")
-                ? "点击右上角「新建任务」，或把 .torrent 文件拖进窗口"
+                ? t("empty.hint")
                 : undefined
             }
           />
@@ -429,7 +427,7 @@ export default function App() {
             connected ? "bg-emerald-500" : "bg-amber-500"
           )}
         />
-        <span>{connected ? "引擎已连接" : "正在连接引擎…"}</span>
+        <span>{connected ? t("engine.connected") : t("engine.connecting")}</span>
         {stat && (
           <span className="ml-auto flex items-center gap-3 tabular-nums">
             <span className="flex items-center gap-1">
