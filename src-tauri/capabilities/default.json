@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window. Note core:window:default only grants read-only window queries, so dragging the window by our custom toolbar (data-tauri-drag-region) needs allow-start-dragging listed explicitly.",
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "opener:default",
     "dialog:default",
     "notification:default",
