@@ -2,11 +2,26 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { aria2, useAppStore } from "@/store/app";
+import { taskOptions, useSettingsStore } from "@/store/settings";
 import { taskFilePath, taskName } from "./format";
-import type { Aria2Task } from "./types";
+import type {
+  Aria2File,
+  Aria2Options,
+  Aria2Peer,
+  Aria2ServerEntry,
+  Aria2Task,
+} from "./types";
 
 function refresh(): void {
   void useAppStore.getState().refresh();
+}
+
+/** Per-task defaults from preferences, with an explicit dir taking priority. */
+function newTaskOptions(dir?: string): Aria2Options {
+  const { settings, trackers } = useSettingsStore.getState();
+  const options = taskOptions(settings, trackers);
+  if (dir) options.dir = dir;
+  return options;
 }
 
 export interface AddUrisResult {
@@ -18,7 +33,7 @@ export async function addUris(
   uris: string[],
   dir?: string
 ): Promise<AddUrisResult> {
-  const options = dir ? { dir } : {};
+  const options = newTaskOptions(dir);
   const failed: AddUrisResult["failed"] = [];
   let added = 0;
   for (const uri of uris) {
@@ -36,6 +51,30 @@ export async function addUris(
   return { added, failed };
 }
 
+/** Route anything dropped/pasted/deep-linked to the right aria2 call. */
+export async function addTargets(targets: string[]): Promise<number> {
+  let added = 0;
+  const uris: string[] = [];
+  for (const target of targets) {
+    if (/\.torrent$/i.test(target) && !/^[a-z]+:\/\//i.test(target)) {
+      try {
+        await addTorrent(target);
+        added += 1;
+      } catch (error) {
+        toastError(error);
+      }
+    } else {
+      uris.push(target);
+    }
+  }
+  if (uris.length > 0) {
+    const result = await addUris(uris);
+    added += result.added;
+    if (result.failed.length > 0) toast.error(result.failed[0].error);
+  }
+  return added;
+}
+
 export async function pickTorrentFile(): Promise<string | null> {
   const selected = await open({
     multiple: false,
@@ -46,8 +85,7 @@ export async function pickTorrentFile(): Promise<string | null> {
 
 export async function addTorrent(path: string, dir?: string): Promise<void> {
   const base64 = await invoke<string>("read_file_base64", { path });
-  const options = dir ? { dir } : {};
-  await aria2().call("addTorrent", base64, [], options);
+  await aria2().call("addTorrent", base64, [], newTaskOptions(dir));
   refresh();
 }
 
@@ -151,6 +189,91 @@ export async function copyTaskLink(task: Aria2Task): Promise<boolean> {
   if (!uri) return false;
   await navigator.clipboard.writeText(uri);
   return true;
+}
+
+/** Re-queue a failed task from its original URI, dropping the dead record. */
+export async function retryTask(task: Aria2Task): Promise<void> {
+  const uri = task.files[0]?.uris[0]?.uri;
+  if (!uri) throw new Error("该任务没有可重试的链接");
+  await aria2().call("addUri", [uri], { ...newTaskOptions(), dir: task.dir });
+  try {
+    await aria2().call("removeDownloadResult", task.gid);
+  } catch {
+    // Record may already be gone.
+  }
+  refresh();
+}
+
+/** Run an action over many tasks, collecting failures instead of aborting. */
+export async function batch(
+  tasks: Aria2Task[],
+  action: (task: Aria2Task) => Promise<unknown>
+): Promise<{ done: number; failed: number }> {
+  const results = await Promise.allSettled(tasks.map(action));
+  refresh();
+  return {
+    done: results.filter((r) => r.status === "fulfilled").length,
+    failed: results.filter((r) => r.status === "rejected").length,
+  };
+}
+
+export function tellStatus(gid: string): Promise<Aria2Task> {
+  return aria2().call<Aria2Task>("tellStatus", gid);
+}
+
+export function getFiles(gid: string): Promise<Aria2File[]> {
+  return aria2().call<Aria2File[]>("getFiles", gid);
+}
+
+export function getPeers(gid: string): Promise<Aria2Peer[]> {
+  return aria2().call<Aria2Peer[]>("getPeers", gid);
+}
+
+export function getServers(gid: string): Promise<Aria2ServerEntry[]> {
+  return aria2().call<Aria2ServerEntry[]>("getServers", gid);
+}
+
+/** aria2 wants 1-based file indexes, comma separated; empty means "all". */
+export async function selectFiles(
+  gid: string,
+  indexes: string[]
+): Promise<void> {
+  await aria2().call("changeOption", gid, {
+    "select-file": indexes.join(","),
+  });
+  refresh();
+}
+
+const TRACKER_SOURCE =
+  "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
+
+/**
+ * Refresh the tracker list from ngosang/trackerslist and push it to running
+ * BT tasks. Goes through the Rust HTTP client because the webview would be
+ * blocked by CORS.
+ */
+export async function updateTrackers(): Promise<number> {
+  const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+  const response = await tauriFetch(TRACKER_SOURCE, { method: "GET" });
+  if (!response.ok) throw new Error(`拉取 tracker 失败：HTTP ${response.status}`);
+
+  const list = (await response.text())
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (list.length === 0) throw new Error("tracker 列表为空");
+
+  const joined = list.join(",");
+  await useSettingsStore.getState().setTrackers(joined);
+
+  // Live BT tasks accept a new tracker list without a restart.
+  const tasks = useAppStore.getState().tasks.filter((task) => task.bittorrent);
+  await Promise.allSettled(
+    tasks.map((task) =>
+      aria2().call("changeOption", task.gid, { "bt-tracker": joined })
+    )
+  );
+  return list.length;
 }
 
 export function toastError(error: unknown): void {

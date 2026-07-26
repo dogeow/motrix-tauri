@@ -5,15 +5,18 @@ import {
   Download,
   EllipsisVertical,
   FolderOpen,
+  Info,
   Magnet,
   Pause,
   Play,
+  RotateCcw,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu,
@@ -26,6 +29,7 @@ import {
   copyTaskLink,
   pauseTask,
   resumeTask,
+  retryTask,
   revealTask,
   toastError,
 } from "@/lib/actions";
@@ -41,10 +45,19 @@ import type { Aria2Task } from "@/lib/types";
 
 interface TaskItemProps {
   task: Aria2Task;
+  selected: boolean;
+  onSelectedChange: (task: Aria2Task, selected: boolean) => void;
   onRemove: (task: Aria2Task) => void;
+  onInspect: (task: Aria2Task) => void;
 }
 
-export function TaskItem({ task, onRemove }: TaskItemProps) {
+export function TaskItem({
+  task,
+  selected,
+  onSelectedChange,
+  onRemove,
+  onInspect,
+}: TaskItemProps) {
   const name = taskName(task);
   const progress = taskProgress(task);
   const isBt = Boolean(task.bittorrent);
@@ -53,7 +66,8 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
   const complete = task.status === "complete";
   const errored = task.status === "error";
   const total = Number(task.totalLength);
-  const seeding = running && isBt && total > 0 && task.completedLength === task.totalLength;
+  const seeding =
+    running && isBt && total > 0 && task.completedLength === task.totalLength;
 
   const handleToggle = async () => {
     try {
@@ -69,6 +83,15 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
       const copied = await copyTaskLink(task);
       if (copied) toast.success("链接已复制");
       else toast.info("该任务没有可复制的链接");
+    } catch (error) {
+      toastError(error);
+    }
+  };
+
+  const handleRetry = async () => {
+    try {
+      await retryTask(task);
+      toast.success("已重新加入队列");
     } catch (error) {
       toastError(error);
     }
@@ -93,26 +116,50 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
   }
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/50">
-      <div
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-md",
-          errored
-            ? "bg-destructive/10 text-destructive"
-            : complete
-              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "bg-muted text-muted-foreground"
-        )}
-      >
-        {errored ? (
-          <TriangleAlert className="size-4" />
-        ) : complete ? (
-          <CircleCheck className="size-4" />
-        ) : isBt ? (
-          <Magnet className="size-4" />
-        ) : (
-          <Download className="size-4" />
-        )}
+    <div
+      className={cn(
+        "group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+        selected ? "bg-accent" : "hover:bg-accent/50"
+      )}
+      onDoubleClick={() => onInspect(task)}
+    >
+      {/* The type icon gives way to a checkbox on hover or when selected. */}
+      <div className="relative size-9 shrink-0">
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center rounded-md transition-opacity group-hover:opacity-0",
+            selected && "opacity-0",
+            errored
+              ? "bg-destructive/10 text-destructive"
+              : complete
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "bg-muted text-muted-foreground"
+          )}
+        >
+          {errored ? (
+            <TriangleAlert className="size-4" />
+          ) : complete ? (
+            <CircleCheck className="size-4" />
+          ) : isBt ? (
+            <Magnet className="size-4" />
+          ) : (
+            <Download className="size-4" />
+          )}
+        </div>
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-100",
+            !selected && "opacity-0"
+          )}
+        >
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) =>
+              onSelectedChange(task, checked === true)
+            }
+            aria-label={`选择 ${name}`}
+          />
+        </div>
       </div>
 
       <div className="min-w-0 flex-1">
@@ -136,7 +183,7 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
           <Progress value={progress} className="mt-2 h-1" />
         )}
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground tabular-nums">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs tabular-nums text-muted-foreground">
           {meta.map((item, index) => (
             <Fragment key={index}>
               {index > 0 && <span className="opacity-40">·</span>}
@@ -144,7 +191,10 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
             </Fragment>
           ))}
           {errored && task.errorMessage && (
-            <span className="truncate text-destructive" title={task.errorMessage}>
+            <span
+              className="truncate text-destructive"
+              title={task.errorMessage}
+            >
               {task.errorMessage}
             </span>
           )}
@@ -152,12 +202,24 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+        {errored && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 hover:text-foreground"
+            onClick={() => void handleRetry()}
+            aria-label="重试"
+            title="重试"
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+        )}
         {(running || paused) && (
           <Button
             variant="ghost"
             size="icon"
             className="size-8 hover:text-foreground"
-            onClick={handleToggle}
+            onClick={() => void handleToggle()}
             aria-label={running ? "暂停" : "开始"}
             title={running ? "暂停" : "开始"}
           >
@@ -186,6 +248,9 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onInspect(task)}>
+              <Info className="size-4" /> 查看详情
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => void handleCopy()}>
               <Copy className="size-4" /> 复制链接
             </DropdownMenuItem>
@@ -194,6 +259,11 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
             >
               <FolderOpen className="size-4" /> 打开所在文件夹
             </DropdownMenuItem>
+            {errored && (
+              <DropdownMenuItem onClick={() => void handleRetry()}>
+                <RotateCcw className="size-4" /> 重试
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"

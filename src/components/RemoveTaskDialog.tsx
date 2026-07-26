@@ -19,6 +19,8 @@ import type { Aria2Task } from "@/lib/types";
 interface RemoveTaskDialogProps {
   /** Snapshot of the task pending removal; null closes the dialog. */
   task: Aria2Task | null;
+  /** Additional tasks removed alongside it when a selection is active. */
+  extraTasks?: Aria2Task[];
   onClose: () => void;
 }
 
@@ -26,9 +28,14 @@ interface RemoveTaskDialogProps {
  * Rendered once at App level (not inside the polled task rows) so the
  * confirmation survives the row unmounting when a task changes category.
  */
-export function RemoveTaskDialog({ task, onClose }: RemoveTaskDialogProps) {
+export function RemoveTaskDialog({
+  task,
+  extraTasks = [],
+  onClose,
+}: RemoveTaskDialogProps) {
   const [deleteFiles, setDeleteFiles] = useState(false);
 
+  const targets = task ? [task, ...extraTasks] : [];
   const name = task ? taskName(task) : "";
 
   const close = () => {
@@ -37,10 +44,24 @@ export function RemoveTaskDialog({ task, onClose }: RemoveTaskDialogProps) {
   };
 
   const handleConfirm = async () => {
-    if (!task) return;
     try {
-      await removeTask(task, deleteFiles);
-      toast.success(deleteFiles ? "任务和文件已删除" : "任务已删除");
+      // Sequential: aria2 races removal against its own bookkeeping, and a
+      // parallel burst makes "record not found" errors far more likely.
+      let failed = 0;
+      for (const target of targets) {
+        try {
+          await removeTask(target, deleteFiles);
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed > 0) {
+        toast.warning(`已删除 ${targets.length - failed} 个，${failed} 个失败`);
+      } else {
+        toast.success(
+          deleteFiles ? "任务和文件已删除" : `已删除 ${targets.length} 个任务`
+        );
+      }
     } catch (error) {
       toastError(error);
     } finally {
@@ -59,15 +80,21 @@ export function RemoveTaskDialog({ task, onClose }: RemoveTaskDialogProps) {
         <AlertDialogHeader>
           <AlertDialogTitle>删除任务</AlertDialogTitle>
           <AlertDialogDescription>
-            确定要删除以下任务吗？
-            {/* Task names can be long unbroken strings (magnet hashes),
-                so force wrapping and cap the height. */}
-            <span
-              className="mt-1.5 line-clamp-3 block break-all font-medium text-foreground"
-              title={name}
-            >
-              {name}
-            </span>
+            {targets.length > 1 ? (
+              `确定要删除选中的 ${targets.length} 个任务吗？`
+            ) : (
+              <>
+                确定要删除以下任务吗？
+                {/* Task names can be long unbroken strings (magnet hashes),
+                    so force wrapping and cap the height. */}
+                <span
+                  className="mt-1.5 line-clamp-3 block break-all font-medium text-foreground"
+                  title={name}
+                >
+                  {name}
+                </span>
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex items-center gap-2">

@@ -2,15 +2,20 @@ use std::{
     fs,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::Duration,
 };
 
 use rand::{distr::Alphanumeric, Rng};
 use serde::Serialize;
-use tauri::{path::BaseDirectory, AppHandle, Manager};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 use tauri_plugin_shell::{process::CommandChild, process::CommandEvent, ShellExt};
 
+/// Connection details handed to the webview. Fixed for the whole app run, so a
+/// crashed-and-restarted aria2 is transparent to the frontend's reconnect loop.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineInfo {
@@ -23,7 +28,13 @@ pub struct EngineInfo {
 pub struct EngineState {
     pub info: Mutex<Option<EngineInfo>>,
     pub child: Mutex<Option<CommandChild>>,
+    /// Last spawn failure, surfaced to the UI instead of aborting startup.
+    pub error: Mutex<Option<String>>,
+    pub shutting_down: AtomicBool,
 }
+
+/// Restart backoff caps at 2^4 = 16s between attempts.
+const MAX_BACKOFF_EXP: u32 = 4;
 
 fn pick_free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
@@ -50,13 +61,22 @@ fn file_allocation() -> &'static str {
     }
 }
 
-pub fn start(app: &AppHandle) -> Result<(), String> {
-    let data_dir = app
+fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("engine");
-    fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Create the connection details on first call; reuse them on every restart.
+fn ensure_info(app: &AppHandle) -> Result<EngineInfo, String> {
+    let state = app.state::<EngineState>();
+    if let Some(info) = state.info.lock().unwrap().clone() {
+        return Ok(info);
+    }
 
     let download_dir = app
         .path()
@@ -64,30 +84,44 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         .or_else(|_| app.path().home_dir())
         .map_err(|e| e.to_string())?;
 
+    let info = EngineInfo {
+        rpc_port: pick_free_port(),
+        rpc_secret: random_secret(),
+        download_dir: download_dir.to_string_lossy().into_owned(),
+    };
+    *state.info.lock().unwrap() = Some(info.clone());
+    Ok(info)
+}
+
+pub fn start(app: &AppHandle) -> Result<(), String> {
+    let result = spawn_engine(app, 0);
+    if let Err(error) = &result {
+        *app.state::<EngineState>().error.lock().unwrap() = Some(error.clone());
+    }
+    result
+}
+
+fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
+    let info = ensure_info(app)?;
+    let dir = data_dir(app)?;
     let conf_path = app
         .path()
         .resolve("resources/aria2.conf", BaseDirectory::Resource)
         .map_err(|e| e.to_string())?;
-
-    let session = data_dir.join("download.session");
-    let port = pick_free_port();
-    let secret = random_secret();
+    let session = dir.join("download.session");
 
     let mut args: Vec<String> = vec![
         format!("--conf-path={}", conf_path.display()),
         "--enable-rpc=true".into(),
         "--rpc-listen-all=false".into(),
         "--rpc-allow-origin-all=true".into(),
-        format!("--rpc-listen-port={port}"),
-        format!("--rpc-secret={secret}"),
-        format!("--dir={}", download_dir.display()),
+        format!("--rpc-listen-port={}", info.rpc_port),
+        format!("--rpc-secret={}", info.rpc_secret),
+        format!("--dir={}", info.download_dir),
         format!("--save-session={}", session.display()),
-        format!("--dht-file-path={}", data_dir.join("dht.dat").display()),
-        format!("--dht-file-path6={}", data_dir.join("dht6.dat").display()),
+        format!("--dht-file-path={}", dir.join("dht.dat").display()),
+        format!("--dht-file-path6={}", dir.join("dht6.dat").display()),
         format!("--file-allocation={}", file_allocation()),
-        // Make aria2 exit on its own if this process dies without cleanup
-        // (crash, force-quit), so no orphan keeps the RPC port open.
-        format!("--stop-with-process={}", std::process::id()),
     ];
     if session.exists() {
         args.push(format!("--input-file={}", session.display()));
@@ -101,6 +135,14 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
 
+    {
+        let state = app.state::<EngineState>();
+        *state.child.lock().unwrap() = Some(child);
+        *state.error.lock().unwrap() = None;
+    }
+    let _ = app.emit("engine-started", info.clone());
+
+    let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -108,42 +150,63 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
                     print!("[aria2] {}", String::from_utf8_lossy(&line));
                 }
                 CommandEvent::Terminated(payload) => {
-                    println!("[aria2] exited with {:?}", payload.code);
+                    let state = handle.state::<EngineState>();
+                    if state.shutting_down.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let reason = format!("aria2 意外退出（code {:?}）", payload.code);
+                    eprintln!("[aria2] {reason}");
+                    *state.error.lock().unwrap() = Some(reason.clone());
+                    let _ = handle.emit("engine-down", reason);
+                    schedule_restart(handle.clone(), attempt);
+                    break;
                 }
                 _ => {}
             }
         }
     });
 
-    let state = app.state::<EngineState>();
-    *state.child.lock().unwrap() = Some(child);
-    *state.info.lock().unwrap() = Some(EngineInfo {
-        rpc_port: port,
-        rpc_secret: secret,
-        download_dir: download_dir.to_string_lossy().into_owned(),
-    });
-
     Ok(())
+}
+
+fn schedule_restart(app: AppHandle, attempt: u32) {
+    let delay = Duration::from_secs(1 << attempt.min(MAX_BACKOFF_EXP));
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        if app.state::<EngineState>().shutting_down.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Err(error) = spawn_engine(&app, attempt + 1) {
+            eprintln!("[aria2] restart failed: {error}");
+            *app.state::<EngineState>().error.lock().unwrap() = Some(error.clone());
+            let _ = app.emit("engine-down", error);
+            schedule_restart(app, attempt + 1);
+        }
+    });
+}
+
+/// Stop the current process and immediately bring a fresh one up.
+pub fn restart(app: &AppHandle) -> Result<(), String> {
+    kill_current(app);
+    std::thread::sleep(Duration::from_millis(300));
+    spawn_engine(app, 0)
 }
 
 /// Ask aria2 to shut down gracefully (saves the session), then kill as fallback.
 pub fn shutdown(app: &AppHandle) {
     let state = app.state::<EngineState>();
-    let info = state.info.lock().unwrap().take();
-    let child = state.child.lock().unwrap().take();
+    state.shutting_down.store(true, Ordering::SeqCst);
 
+    let info = state.info.lock().unwrap().clone();
     if let Some(info) = info {
         rpc_shutdown(info.rpc_port, &info.rpc_secret);
-        // Give aria2 up to 3s to save the session and exit; the RPC port
-        // closing is our signal that it is gone.
-        let addr = SocketAddr::from(([127, 0, 0, 1], info.rpc_port));
-        for _ in 0..15 {
-            std::thread::sleep(Duration::from_millis(200));
-            if TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_err() {
-                break;
-            }
-        }
+        std::thread::sleep(Duration::from_millis(500));
     }
+    kill_current(app);
+}
+
+fn kill_current(app: &AppHandle) {
+    let child = app.state::<EngineState>().child.lock().unwrap().take();
     if let Some(child) = child {
         let _ = child.kill();
     }

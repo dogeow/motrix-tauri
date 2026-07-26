@@ -15,6 +15,20 @@ export function aria2(): Aria2Client {
   return client;
 }
 
+type NotificationHandler = (method: string, gid: string) => void;
+const notificationHandlers = new Set<NotificationHandler>();
+
+/**
+ * Subscribe to aria2's push notifications (onDownloadComplete, onDownloadError,
+ * …). Survives engine restarts, unlike a handler bound to the client itself.
+ */
+export function onAria2Notification(handler: NotificationHandler): () => void {
+  notificationHandlers.add(handler);
+  return () => {
+    notificationHandlers.delete(handler);
+  };
+}
+
 const POLL_INTERVAL = 1000;
 
 interface AppState {
@@ -57,8 +71,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ connected });
       if (connected) void get().refresh();
     });
-    client.onNotification(() => {
+    client.onNotification((method, gid) => {
       void get().refresh();
+      notificationHandlers.forEach((handler) => handler(method, gid));
     });
     client.connect();
 

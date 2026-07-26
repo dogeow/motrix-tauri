@@ -50,6 +50,30 @@ export interface GlobalStat {
   numStopped: string;
 }
 
+export interface Aria2Peer {
+  peerId: string;
+  ip: string;
+  port: string;
+  bitfield: string;
+  amChoking: string;
+  peerChoking: string;
+  downloadSpeed: string;
+  uploadSpeed: string;
+  seeder: string;
+}
+
+export interface Aria2ServerEntry {
+  index: string;
+  servers: {
+    uri: string;
+    currentUri: string;
+    downloadSpeed: string;
+  }[];
+}
+
+/** aria2 option bag; every value is a string over the wire. */
+export type Aria2Options = Record<string, string>;
+
 export interface EngineInfo {
   rpcPort: number;
   rpcSecret: string;

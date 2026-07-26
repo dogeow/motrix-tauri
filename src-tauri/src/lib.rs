@@ -1,16 +1,27 @@
 mod engine;
+mod links;
+mod tray;
 
 use base64::Engine as _;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
+use tauri_plugin_autostart::MacosLauncher;
 
 #[tauri::command]
 fn get_engine_info(state: tauri::State<engine::EngineState>) -> Result<engine::EngineInfo, String> {
+    if let Some(error) = state.error.lock().unwrap().clone() {
+        return Err(error);
+    }
     state
         .info
         .lock()
         .unwrap()
         .clone()
         .ok_or_else(|| "下载引擎尚未启动".into())
+}
+
+#[tauri::command]
+fn restart_engine(app: tauri::AppHandle) -> Result<(), String> {
+    engine::restart(&app)
 }
 
 #[tauri::command]
@@ -91,35 +102,141 @@ fn trash_task_files(
     Ok(trashed)
 }
 
+/// Links/files handed over before the webview started listening.
+#[tauri::command]
+fn take_pending_targets(app: tauri::AppHandle) -> Vec<String> {
+    links::take_pending(&app)
+}
+
+/// macOS shows the aggregate speed next to the menu bar icon.
+#[tauri::command]
+fn set_tray_title(app: tauri::AppHandle, title: Option<String>) {
+    #[cfg(target_os = "macos")]
+    if let Some(tray) = app.tray_by_id(tray::TRAY_ID) {
+        let _ = tray.set_title(title.as_deref());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, title);
+    }
+}
+
+#[tauri::command]
+fn set_tray_tooltip(app: tauri::AppHandle, tooltip: String) {
+    if let Some(tray) = app.tray_by_id(tray::TRAY_ID) {
+        let _ = tray.set_tooltip(Some(tooltip));
+    }
+}
+
+/// Taskbar/Dock progress. `progress` is 0-100, or None to clear.
+#[tauri::command]
+fn set_progress(app: tauri::AppHandle, progress: Option<f64>) {
+    use tauri::window::{ProgressBarState, ProgressBarStatus};
+
+    if let Some(window) = app.get_webview_window("main") {
+        let state = match progress {
+            Some(value) => ProgressBarState {
+                status: Some(ProgressBarStatus::Normal),
+                progress: Some(value.clamp(0.0, 100.0) as u64),
+            },
+            None => ProgressBarState {
+                status: Some(ProgressBarStatus::None),
+                progress: None,
+            },
+        };
+        let _ = window.set_progress_bar(state);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            tray::show_main_window(app);
+            links::dispatch(app, links::filter_targets(args.iter().skip(1)));
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--opened-at-login"]),
+        ))
         .manage(engine::EngineState::default())
+        .manage(links::PendingTargets::default())
         .invoke_handler(tauri::generate_handler![
             get_engine_info,
+            restart_engine,
             read_file_base64,
             reveal_in_folder,
-            trash_task_files
+            trash_task_files,
+            take_pending_targets,
+            set_tray_title,
+            set_tray_tooltip,
+            set_progress
         ])
         .setup(|app| {
-            engine::start(app.handle())?;
+            let handle = app.handle();
+            tray::create(handle)?;
+
+            // A missing or broken sidecar must not stop the window from
+            // opening — the UI surfaces the error and offers a retry.
+            if let Err(error) = engine::start(handle) {
+                eprintln!("[aria2] failed to start: {error}");
+            }
+
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let deep_link = app.deep_link();
+                // Dev builds register the schemes at runtime; packaged builds
+                // get them from the bundle configuration.
+                #[cfg(debug_assertions)]
+                let _ = deep_link.register_all();
+
+                if let Ok(Some(urls)) = deep_link.get_current() {
+                    let targets =
+                        links::filter_targets(urls.iter().map(|url| url.to_string()));
+                    links::dispatch(handle, targets);
+                }
+
+                let link_handle = handle.clone();
+                deep_link.on_open_url(move |event| {
+                    let targets = links::filter_targets(
+                        event.urls().iter().map(|url| url.to_string()),
+                    );
+                    links::dispatch(&link_handle, targets);
+                });
+            }
+
+            links::dispatch(handle, links::filter_targets(std::env::args().skip(1)));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing the window keeps downloads running in the tray; quitting
+            // happens from the tray menu or the app menu.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                engine::shutdown(app);
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => engine::shutdown(app),
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                let targets = links::filter_targets(urls.iter().map(|url| url.to_string()));
+                links::dispatch(app, targets);
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => tray::show_main_window(app),
+            _ => {}
         });
 }

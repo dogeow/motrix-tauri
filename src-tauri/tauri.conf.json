@@ -18,11 +18,19 @@
         "minWidth": 760,
         "minHeight": 520,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "dragDropEnabled": true
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["magnet", "motrix"]
+      }
     }
   },
   "bundle": {
@@ -36,6 +44,15 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/aria2c"],
-    "resources": ["resources/aria2.conf"]
+    "resources": ["resources/aria2.conf"],
+    "fileAssociations": [
+      {
+        "ext": ["torrent"],
+        "name": "BitTorrent Document",
+        "description": "BitTorrent 种子文件",
+        "mimeType": "application/x-bittorrent",
+        "role": "Viewer"
+      }
+    ]
   }
 }
