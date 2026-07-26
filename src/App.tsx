@@ -23,7 +23,7 @@ import { RemoveTaskDialog } from "@/components/RemoveTaskDialog";
 import { TaskItem } from "@/components/TaskItem";
 import { pauseAll, purgeStopped, resumeAll, toastError } from "@/lib/actions";
 import { formatSpeed } from "@/lib/format";
-import type { Aria2Task } from "@/lib/types";
+import type { Aria2Task, GlobalStat } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAppStore, type Category } from "@/store/app";
 
@@ -42,10 +42,27 @@ function useSystemTheme() {
 }
 
 const EMPTY_HINT: Record<Category, string> = {
+  all: "还没有任何任务",
   active: "没有正在下载的任务",
   waiting: "队列里没有等待中的任务",
   stopped: "没有已完成或已停止的任务",
 };
+
+const CATEGORY_TABS: {
+  value: Category;
+  label: string;
+  count: (stat: GlobalStat) => number;
+}[] = [
+  {
+    value: "all",
+    label: "全部",
+    count: (stat) =>
+      Number(stat.numActive) + Number(stat.numWaiting) + Number(stat.numStopped),
+  },
+  { value: "active", label: "下载中", count: (stat) => Number(stat.numActive) },
+  { value: "waiting", label: "等待中", count: (stat) => Number(stat.numWaiting) },
+  { value: "stopped", label: "已停止", count: (stat) => Number(stat.numStopped) },
+];
 
 function IconAction({
   label,
@@ -100,42 +117,30 @@ export default function App() {
           onValueChange={(value) => setCategory(value as Category)}
         >
           <TabsList>
-            <TabsTrigger value="active">
-              下载中
-              {stat && Number(stat.numActive) > 0 && (
-                <span className="ml-1 tabular-nums opacity-60">
-                  {stat.numActive}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="waiting">
-              等待中
-              {stat && Number(stat.numWaiting) > 0 && (
-                <span className="ml-1 tabular-nums opacity-60">
-                  {stat.numWaiting}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="stopped">
-              已停止
-              {stat && Number(stat.numStopped) > 0 && (
-                <span className="ml-1 tabular-nums opacity-60">
-                  {stat.numStopped}
-                </span>
-              )}
-            </TabsTrigger>
+            {CATEGORY_TABS.map(({ value, label, count }) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+                {stat && count(stat) > 0 && (
+                  <span className="ml-1 tabular-nums opacity-60">
+                    {count(stat)}
+                  </span>
+                )}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </Tabs>
 
         <div className="ml-auto flex items-center gap-0.5">
-          {category === "stopped" && tasks.length > 0 && (
-            <IconAction
-              label="清除记录"
-              onClick={() => void purgeStopped().catch(toastError)}
-            >
-              <Eraser className="size-4" />
-            </IconAction>
-          )}
+          {(category === "stopped" || category === "all") &&
+            stat &&
+            Number(stat.numStopped) > 0 && (
+              <IconAction
+                label="清除已停止记录"
+                onClick={() => void purgeStopped().catch(toastError)}
+              >
+                <Eraser className="size-4" />
+              </IconAction>
+            )}
           <IconAction
             label="全部暂停"
             onClick={() => void pauseAll().catch(toastError)}
@@ -165,7 +170,11 @@ export default function App() {
           <EmptyState
             icon={<Inbox className="size-6" />}
             title={EMPTY_HINT[category]}
-            detail={category === "active" ? "点击右上角「新建任务」开始下载" : undefined}
+            detail={
+              category === "all" || category === "active"
+                ? "点击右上角「新建任务」开始下载"
+                : undefined
+            }
           />
         ) : (
           <div className="flex flex-col gap-1.5 p-3">

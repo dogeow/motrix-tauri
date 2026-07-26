@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Aria2Client } from "@/lib/aria2";
 import type { Aria2Task, EngineInfo, GlobalStat } from "@/lib/types";
 
-export type Category = "active" | "waiting" | "stopped";
+export type Category = "all" | "active" | "waiting" | "stopped";
 
 let client: Aria2Client | null = null;
 let initStarted = false;
@@ -32,7 +32,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   engine: null,
   connected: false,
-  category: "active",
+  category: "all",
   tasks: [],
   stat: null,
   initError: null,
@@ -78,19 +78,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const [stat, tasks] = await Promise.all([
         client.call<GlobalStat>("getGlobalStat"),
-        category === "active"
-          ? client.call<Aria2Task[]>("tellActive")
-          : category === "waiting"
-            ? client.call<Aria2Task[]>("tellWaiting", 0, 1000)
-            : client.call<Aria2Task[]>("tellStopped", 0, 1000),
+        fetchTasks(client, category),
       ]);
-      // Show the most recent stopped tasks first.
-      set({ stat, tasks: category === "stopped" ? tasks.reverse() : tasks });
+      set({ stat, tasks });
     } catch {
       // Transient RPC failure (e.g. mid-reconnect); onStatus handles state.
     }
   },
 }));
+
+const MAX_LISTED = 1000;
+
+/** Newest stopped tasks first — aria2 appends them chronologically. */
+function tellStopped(client: Aria2Client): Promise<Aria2Task[]> {
+  return client
+    .call<Aria2Task[]>("tellStopped", 0, MAX_LISTED)
+    .then((tasks) => tasks.reverse());
+}
+
+function fetchTasks(
+  client: Aria2Client,
+  category: Category
+): Promise<Aria2Task[]> {
+  switch (category) {
+    case "active":
+      return client.call<Aria2Task[]>("tellActive");
+    case "waiting":
+      return client.call<Aria2Task[]>("tellWaiting", 0, MAX_LISTED);
+    case "stopped":
+      return tellStopped(client);
+    case "all":
+      return Promise.all([
+        client.call<Aria2Task[]>("tellActive"),
+        client.call<Aria2Task[]>("tellWaiting", 0, MAX_LISTED),
+        tellStopped(client),
+      ]).then(([active, waiting, stopped]) => [
+        ...active,
+        ...waiting,
+        ...stopped,
+      ]);
+  }
+}
 
 // Dev-only: tear down the old WebSocket client and poll loop when Vite
 // hot-replaces this module, so HMR doesn't stack duplicates.
