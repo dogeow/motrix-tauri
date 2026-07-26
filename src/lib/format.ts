@@ -50,10 +50,15 @@ export function taskName(task: Aria2Task): string {
   const file = task.files[0];
 
   if (file?.path?.startsWith(METADATA_PREFIX)) {
+    // aria2 suffixes the magnet's dn when it has one, else the info hash.
+    const suffix = file.path.slice(METADATA_PREFIX.length);
+    if (suffix && !/^[0-9a-f]{40}$/i.test(suffix)) return suffix;
+
     const dn = magnetDisplayName(file.uris);
     if (dn) return dn;
-    const hash = file.path.slice(METADATA_PREFIX.length) || task.infoHash || "";
-    return `磁力链接（${hash.slice(0, 8) || "获取元数据中"}…）`;
+
+    const hash = suffix || task.infoHash || "";
+    return hash ? `磁力链接（${hash.slice(0, 8)}…）` : "磁力链接（读取元数据中）";
   }
 
   if (file?.path) {
