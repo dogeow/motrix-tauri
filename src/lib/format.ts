@@ -1,6 +1,9 @@
-import type { Aria2Task } from "./types";
+import type { Aria2Task, Aria2Uri } from "./types";
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+/** aria2 names a magnet task "[METADATA]<infoHash>" until the torrent arrives. */
+const METADATA_PREFIX = "[METADATA]";
 
 export function formatBytes(value: number | string): string {
   let bytes = Number(value);
@@ -29,11 +32,30 @@ export function formatEta(task: Aria2Task): string {
   return `${seconds}s`;
 }
 
+/** Display name from a magnet link's `dn` parameter, if it carries one. */
+function magnetDisplayName(uris: Aria2Uri[]): string | null {
+  for (const { uri } of uris) {
+    const query = uri.indexOf("?");
+    if (!uri.startsWith("magnet:") || query < 0) continue;
+    const dn = new URLSearchParams(uri.slice(query + 1)).get("dn");
+    if (dn) return dn;
+  }
+  return null;
+}
+
 export function taskName(task: Aria2Task): string {
   const btName = task.bittorrent?.info?.name;
   if (btName) return btName;
 
   const file = task.files[0];
+
+  if (file?.path?.startsWith(METADATA_PREFIX)) {
+    const dn = magnetDisplayName(file.uris);
+    if (dn) return dn;
+    const hash = file.path.slice(METADATA_PREFIX.length) || task.infoHash || "";
+    return `磁力链接（${hash.slice(0, 8) || "获取元数据中"}…）`;
+  }
+
   if (file?.path) {
     const segments = file.path.replace(/\\/g, "/").split("/");
     const name = segments[segments.length - 1];
@@ -66,7 +88,7 @@ export function taskProgress(task: Aria2Task): number {
 /** Absolute path of the task's primary payload on disk. */
 export function taskFilePath(task: Aria2Task): string | null {
   // Magnet metadata placeholder tasks have no real payload on disk.
-  if (task.files[0]?.path?.startsWith("[METADATA]")) return null;
+  if (task.files[0]?.path?.startsWith(METADATA_PREFIX)) return null;
 
   const btName = task.bittorrent?.info?.name;
   if (btName) {

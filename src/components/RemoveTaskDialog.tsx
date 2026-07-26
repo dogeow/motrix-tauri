@@ -29,6 +29,8 @@ interface RemoveTaskDialogProps {
 export function RemoveTaskDialog({ task, onClose }: RemoveTaskDialogProps) {
   const [deleteFiles, setDeleteFiles] = useState(false);
 
+  const name = task ? taskName(task) : "";
+
   const close = () => {
     setDeleteFiles(false);
     onClose();
@@ -56,8 +58,16 @@ export function RemoveTaskDialog({ task, onClose }: RemoveTaskDialogProps) {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>删除任务</AlertDialogTitle>
-          <AlertDialogDescription className="truncate">
-            确定要删除「{task ? taskName(task) : ""}」吗？
+          <AlertDialogDescription>
+            确定要删除以下任务吗？
+            {/* Task names can be long unbroken strings (magnet hashes),
+                so force wrapping and cap the height. */}
+            <span
+              className="mt-1.5 line-clamp-3 block break-all font-medium text-foreground"
+              title={name}
+            >
+              {name}
+            </span>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex items-center gap-2">
