@@ -24,7 +24,11 @@ import { TaskItem } from "@/components/TaskItem";
 import { pauseAll, purgeStopped, resumeAll, toastError } from "@/lib/actions";
 import { formatSpeed } from "@/lib/format";
 import type { Aria2Task } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { useAppStore, type Category } from "@/store/app";
+
+/** macOS keeps its traffic lights over our toolbar, so reserve space for them. */
+const IS_MAC = navigator.userAgent.includes("Macintosh");
 
 function useSystemTheme() {
   useEffect(() => {
@@ -39,9 +43,36 @@ function useSystemTheme() {
 
 const EMPTY_HINT: Record<Category, string> = {
   active: "没有正在下载的任务",
-  waiting: "没有等待中的任务",
-  stopped: "没有已停止的任务",
+  waiting: "队列里没有等待中的任务",
+  stopped: "没有已完成或已停止的任务",
 };
+
+function IconAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 text-muted-foreground hover:text-foreground"
+          onClick={onClick}
+          aria-label={label}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export default function App() {
   useSystemTheme();
@@ -57,95 +88,100 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex items-center gap-2 border-b px-4 py-3">
-        <h1 className="text-base font-semibold">Motrix</h1>
-        <div className="ml-auto flex items-center gap-1.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => void pauseAll().catch(toastError)}
-              >
-                <Pause className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>全部暂停</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => void resumeAll().catch(toastError)}
-              >
-                <Play className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>全部开始</TooltipContent>
-          </Tooltip>
-          <Button onClick={() => setAddOpen(true)}>
+      <header
+        data-tauri-drag-region
+        className={cn(
+          "flex h-13 shrink-0 items-center gap-3 border-b px-3",
+          IS_MAC && "pl-20"
+        )}
+      >
+        <Tabs
+          value={category}
+          onValueChange={(value) => setCategory(value as Category)}
+        >
+          <TabsList>
+            <TabsTrigger value="active">
+              下载中
+              {stat && Number(stat.numActive) > 0 && (
+                <span className="ml-1 tabular-nums opacity-60">
+                  {stat.numActive}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="waiting">
+              等待中
+              {stat && Number(stat.numWaiting) > 0 && (
+                <span className="ml-1 tabular-nums opacity-60">
+                  {stat.numWaiting}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="stopped">
+              已停止
+              {stat && Number(stat.numStopped) > 0 && (
+                <span className="ml-1 tabular-nums opacity-60">
+                  {stat.numStopped}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="ml-auto flex items-center gap-0.5">
+          {category === "stopped" && tasks.length > 0 && (
+            <IconAction
+              label="清除记录"
+              onClick={() => void purgeStopped().catch(toastError)}
+            >
+              <Eraser className="size-4" />
+            </IconAction>
+          )}
+          <IconAction
+            label="全部暂停"
+            onClick={() => void pauseAll().catch(toastError)}
+          >
+            <Pause className="size-4" />
+          </IconAction>
+          <IconAction
+            label="全部开始"
+            onClick={() => void resumeAll().catch(toastError)}
+          >
+            <Play className="size-4" />
+          </IconAction>
+          <Button size="sm" className="ml-1.5" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> 新建任务
           </Button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col px-4 pt-3">
-        <div className="flex items-center justify-between">
-          <Tabs
-            value={category}
-            onValueChange={(value) => setCategory(value as Category)}
-          >
-            <TabsList>
-              <TabsTrigger value="active">
-                下载中{stat ? `（${stat.numActive}）` : ""}
-              </TabsTrigger>
-              <TabsTrigger value="waiting">
-                等待中{stat ? `（${stat.numWaiting}）` : ""}
-              </TabsTrigger>
-              <TabsTrigger value="stopped">
-                已停止{stat ? `（${stat.numStopped}）` : ""}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {category === "stopped" && tasks.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void purgeStopped().catch(toastError)}
-            >
-              <Eraser className="size-4" /> 清除记录
-            </Button>
-          )}
-        </div>
+      <ScrollArea className="min-h-0 flex-1">
+        {initError ? (
+          <EmptyState
+            icon={<CircleAlert className="size-6 text-destructive" />}
+            title="下载引擎启动失败"
+            detail={initError}
+          />
+        ) : tasks.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="size-6" />}
+            title={EMPTY_HINT[category]}
+            detail={category === "active" ? "点击右上角「新建任务」开始下载" : undefined}
+          />
+        ) : (
+          <div className="flex flex-col gap-1.5 p-3">
+            {tasks.map((task) => (
+              <TaskItem key={task.gid} task={task} onRemove={setRemoveTarget} />
+            ))}
+          </div>
+        )}
+      </ScrollArea>
 
-        <ScrollArea className="min-h-0 flex-1 py-3">
-          {initError ? (
-            <div className="flex flex-col items-center gap-2 py-24 text-sm text-muted-foreground">
-              <CircleAlert className="size-8 text-destructive" />
-              <p>下载引擎启动失败</p>
-              <p className="max-w-md text-center text-xs">{initError}</p>
-            </div>
-          ) : tasks.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-24 text-sm text-muted-foreground">
-              <Inbox className="size-8" />
-              <p>{EMPTY_HINT[category]}</p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2 pb-2">
-              {tasks.map((task) => (
-                <TaskItem key={task.gid} task={task} onRemove={setRemoveTarget} />
-              ))}
-            </div>
-          )}
-        </ScrollArea>
-      </div>
-
-      <footer className="flex items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
+      <footer className="flex h-8 shrink-0 items-center gap-2 border-t px-4 text-xs text-muted-foreground">
         <span
-          className={`size-2 rounded-full ${
-            connected ? "bg-emerald-500" : "bg-red-500"
-          }`}
+          className={cn(
+            "size-1.5 rounded-full",
+            connected ? "bg-emerald-500" : "bg-amber-500"
+          )}
         />
         <span>{connected ? "引擎已连接" : "正在连接引擎…"}</span>
         {stat && (
@@ -168,6 +204,28 @@ export default function App() {
         onClose={() => setRemoveTarget(null)}
       />
       <Toaster position="bottom-right" />
+    </div>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  detail,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  detail?: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-6 py-28 text-center">
+      <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        {icon}
+      </div>
+      <p className="text-sm text-muted-foreground">{title}</p>
+      {detail && (
+        <p className="max-w-md text-xs text-muted-foreground/70">{detail}</p>
+      )}
     </div>
   );
 }

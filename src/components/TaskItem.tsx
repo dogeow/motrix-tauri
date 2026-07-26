@@ -1,15 +1,15 @@
+import { Fragment, type ReactNode } from "react";
 import {
-  ArrowDown,
-  ArrowUp,
-  Clock,
+  CircleCheck,
   Copy,
+  Download,
   EllipsisVertical,
   FolderOpen,
-  Link2,
+  Magnet,
   Pause,
   Play,
   Trash2,
-  Users,
+  TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -36,34 +36,8 @@ import {
   taskName,
   taskProgress,
 } from "@/lib/format";
-import type { Aria2Task, TaskStatus } from "@/lib/types";
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  active: "下载中",
-  waiting: "等待中",
-  paused: "已暂停",
-  error: "出错",
-  complete: "已完成",
-  removed: "已移除",
-};
-
-function StatusBadge({ task }: { task: Aria2Task }) {
-  const { status } = task;
-  const isSeeding =
-    status === "active" &&
-    task.bittorrent &&
-    Number(task.completedLength) > 0 &&
-    task.completedLength === task.totalLength;
-
-  if (isSeeding) return <Badge variant="secondary">做种中</Badge>;
-  if (status === "error") {
-    return <Badge variant="destructive">{STATUS_LABEL[status]}</Badge>;
-  }
-  if (status === "complete") {
-    return <Badge variant="secondary">{STATUS_LABEL[status]}</Badge>;
-  }
-  return <Badge variant="outline">{STATUS_LABEL[status]}</Badge>;
-}
+import { cn } from "@/lib/utils";
+import type { Aria2Task } from "@/lib/types";
 
 interface TaskItemProps {
   task: Aria2Task;
@@ -73,9 +47,13 @@ interface TaskItemProps {
 export function TaskItem({ task, onRemove }: TaskItemProps) {
   const name = taskName(task);
   const progress = taskProgress(task);
+  const isBt = Boolean(task.bittorrent);
   const running = task.status === "active";
   const paused = task.status === "paused";
-  const isBt = Boolean(task.bittorrent);
+  const complete = task.status === "complete";
+  const errored = task.status === "error";
+  const total = Number(task.totalLength);
+  const seeding = running && isBt && total > 0 && task.completedLength === task.totalLength;
 
   const handleToggle = async () => {
     try {
@@ -96,105 +74,135 @@ export function TaskItem({ task, onRemove }: TaskItemProps) {
     }
   };
 
+  const meta: ReactNode[] = [];
+  if (complete) {
+    meta.push(formatBytes(task.totalLength));
+  } else {
+    meta.push(
+      `${formatBytes(task.completedLength)} / ${formatBytes(task.totalLength)}`
+    );
+    if (total > 0) meta.push(`${progress.toFixed(1)}%`);
+  }
+  if (running) {
+    meta.push(`↓ ${formatSpeed(task.downloadSpeed)}`);
+    if (isBt && Number(task.uploadSpeed) > 0) {
+      meta.push(`↑ ${formatSpeed(task.uploadSpeed)}`);
+    }
+    if (!seeding) meta.push(`剩余 ${formatEta(task)}`);
+    if (isBt) meta.push(`${task.numSeeders ?? 0}/${task.connections} 连接`);
+  }
+
   return (
-    <div className="group rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-accent/40">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium" title={name}>
-              {name}
-            </span>
-            <StatusBadge task={task} />
-          </div>
+    <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/50">
+      <div
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-md",
+          errored
+            ? "bg-destructive/10 text-destructive"
+            : complete
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "bg-muted text-muted-foreground"
+        )}
+      >
+        {errored ? (
+          <TriangleAlert className="size-4" />
+        ) : complete ? (
+          <CircleCheck className="size-4" />
+        ) : isBt ? (
+          <Magnet className="size-4" />
+        ) : (
+          <Download className="size-4" />
+        )}
+      </div>
 
-          <div className="mt-2">
-            <Progress value={progress} className="h-1.5" />
-          </div>
-
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>
-              {formatBytes(task.completedLength)} /{" "}
-              {formatBytes(task.totalLength)}（{progress.toFixed(1)}%）
-            </span>
-            {running && (
-              <span className="flex items-center gap-1">
-                <ArrowDown className="size-3" />
-                {formatSpeed(task.downloadSpeed)}
-              </span>
-            )}
-            {running && isBt && (
-              <span className="flex items-center gap-1">
-                <ArrowUp className="size-3" />
-                {formatSpeed(task.uploadSpeed)}
-              </span>
-            )}
-            {running && (
-              <span className="flex items-center gap-1">
-                <Clock className="size-3" />
-                {formatEta(task)}
-              </span>
-            )}
-            {running && isBt && (
-              <span className="flex items-center gap-1">
-                <Users className="size-3" />
-                {task.numSeeders ?? 0}/{task.connections}
-              </span>
-            )}
-            {task.status === "error" && task.errorMessage && (
-              <span
-                className="truncate text-destructive"
-                title={task.errorMessage}
-              >
-                {task.errorMessage}
-              </span>
-            )}
-          </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium" title={name}>
+            {name}
+          </span>
+          {seeding && (
+            <Badge variant="secondary" className="shrink-0">
+              做种中
+            </Badge>
+          )}
+          {paused && (
+            <Badge variant="outline" className="shrink-0">
+              已暂停
+            </Badge>
+          )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          {(running || paused) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={handleToggle}
-              title={running ? "暂停" : "开始"}
-            >
-              {running ? <Pause className="size-4" /> : <Play className="size-4" />}
-            </Button>
+        {!complete && !errored && (
+          <Progress value={progress} className="mt-2 h-1" />
+        )}
+
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground tabular-nums">
+          {meta.map((item, index) => (
+            <Fragment key={index}>
+              {index > 0 && <span className="opacity-40">·</span>}
+              <span>{item}</span>
+            </Fragment>
+          ))}
+          {errored && task.errorMessage && (
+            <span className="truncate text-destructive" title={task.errorMessage}>
+              {task.errorMessage}
+            </span>
           )}
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+        {(running || paused) && (
           <Button
             variant="ghost"
             size="icon"
-            className="size-8"
-            onClick={() => void revealTask(task).catch(toastError)}
-            title="打开所在文件夹"
+            className="size-8 hover:text-foreground"
+            onClick={handleToggle}
+            aria-label={running ? "暂停" : "开始"}
+            title={running ? "暂停" : "开始"}
           >
-            <FolderOpen className="size-4" />
+            {running ? <Pause className="size-4" /> : <Play className="size-4" />}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-8">
-                <EllipsisVertical className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => void handleCopy()}>
-                <Copy className="size-4" /> 复制链接
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void revealTask(task).catch(toastError)}>
-                <Link2 className="size-4" /> 打开所在文件夹
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => onRemove(task)}
-              >
-                <Trash2 className="size-4" /> 删除任务
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 hover:text-foreground"
+          onClick={() => void revealTask(task).catch(toastError)}
+          aria-label="打开所在文件夹"
+          title="打开所在文件夹"
+        >
+          <FolderOpen className="size-4" />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 hover:text-foreground"
+              aria-label="更多操作"
+            >
+              <EllipsisVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => void handleCopy()}>
+              <Copy className="size-4" /> 复制链接
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void revealTask(task).catch(toastError)}
+            >
+              <FolderOpen className="size-4" /> 打开所在文件夹
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => onRemove(task)}
+            >
+              <Trash2 className="size-4" /> 删除任务
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
