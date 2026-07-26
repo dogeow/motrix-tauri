@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{SocketAddr, TcpListener, TcpStream, UdpSocket},
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
@@ -51,6 +51,24 @@ fn random_secret() -> String {
         .collect()
 }
 
+/// aria2 needs the same port free for TCP (peers) and UDP (DHT), and it
+/// disables BitTorrent outright if the one port it was given is taken. Walk
+/// forward to the first free pair so a leftover process cannot break BT, and
+/// return it so the UPnP mapping targets the port actually in use.
+fn pick_bt_port(preferred: u16) -> u16 {
+    for offset in 0..PORT_SCAN_RANGE {
+        let Some(port) = preferred.checked_add(offset) else {
+            break;
+        };
+        let tcp_free = TcpListener::bind(("0.0.0.0", port)).is_ok();
+        let udp_free = UdpSocket::bind(("0.0.0.0", port)).is_ok();
+        if tcp_free && udp_free {
+            return port;
+        }
+    }
+    preferred
+}
+
 fn file_allocation() -> &'static str {
     if cfg!(target_os = "windows") {
         "falloc"
@@ -80,6 +98,8 @@ pub struct NetSettings {
 }
 
 const DEFAULT_BT_PORT: u16 = 51413;
+/// How many ports past the configured one to try before giving up.
+const PORT_SCAN_RANGE: u16 = 10;
 
 fn read_net_settings(app: &AppHandle) -> NetSettings {
     use tauri_plugin_store::StoreExt;
@@ -176,10 +196,19 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
     let session = dir.join("download.session");
     let net = read_net_settings(app);
 
-    // Pinning the BT port is what makes a UPnP mapping meaningful.
+    // A known BT port is what makes a UPnP mapping meaningful, but it has to
+    // be one that is actually free right now.
+    let bt_port = pick_bt_port(net.bt_port);
+    if bt_port != net.bt_port {
+        println!("[aria2] BT port {} busy, using {bt_port}", net.bt_port);
+    }
+
     let mut args: Vec<String> = vec![
-        format!("--listen-port={}", net.bt_port),
-        format!("--dht-listen-port={}", net.bt_port),
+        format!("--listen-port={bt_port}"),
+        format!("--dht-listen-port={bt_port}"),
+        // Never outlive the app: without this a hard kill (or a `tauri dev`
+        // rebuild) leaves an orphan holding the RPC and BT ports.
+        format!("--stop-with-process={}", std::process::id()),
     ];
     args.extend([
         format!("--conf-path={}", conf_path.display()),
@@ -200,7 +229,7 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
 
     let upnp = app.state::<crate::upnp::UpnpState>();
     if net.upnp {
-        upnp.start(net.bt_port);
+        upnp.start(bt_port);
     } else {
         upnp.stop();
     }

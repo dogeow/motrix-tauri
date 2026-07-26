@@ -1,7 +1,7 @@
 use std::{
     net::{IpAddr, SocketAddr, UdpSocket},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         Arc,
     },
     time::Duration,
@@ -17,6 +17,8 @@ const DESCRIPTION: &str = "Motrix BitTorrent";
 #[derive(Default)]
 pub struct UpnpState {
     active: Arc<AtomicBool>,
+    /// Port currently being mapped, so a restart on a different port remaps.
+    mapped: AtomicU16,
 }
 
 impl UpnpState {
@@ -24,9 +26,14 @@ impl UpnpState {
     /// Runs entirely on a background thread: SSDP discovery can block for
     /// seconds and must never sit on the UI thread.
     pub fn start(&self, port: u16) {
-        if self.active.swap(true, Ordering::SeqCst) {
-            return;
+        if self.active.load(Ordering::SeqCst) {
+            if self.mapped.load(Ordering::SeqCst) == port {
+                return;
+            }
+            self.stop();
         }
+        self.mapped.store(port, Ordering::SeqCst);
+        self.active.store(true, Ordering::SeqCst);
         let active = self.active.clone();
         std::thread::spawn(move || {
             while active.load(Ordering::SeqCst) {
