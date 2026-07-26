@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, RefreshCw } from "lucide-react";
+import { ClipboardCopy, FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -117,6 +119,7 @@ export function PreferencesDialog({
   const { settings, trackers, update, load } = useSettingsStore();
   const engine = useAppStore((state) => state.engine);
   const [updatingTrackers, setUpdatingTrackers] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (open) void load();
@@ -183,6 +186,30 @@ export function PreferencesDialog({
     }
   };
 
+  const handleCopyRpc = async () => {
+    if (!engine) return;
+    try {
+      await writeText(
+        `http://127.0.0.1:${engine.rpcPort}/jsonrpc\n密钥: ${engine.rpcSecret}`
+      );
+      toast.success("RPC 地址和密钥已复制");
+    } catch (error) {
+      toastError(error);
+    }
+  };
+
+  const handleRestartEngine = async () => {
+    setRestarting(true);
+    try {
+      await invoke("restart_engine");
+      toast.success("下载引擎已重启");
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   const trackerCount = trackers ? trackers.split(",").filter(Boolean).length : 0;
 
   return (
@@ -202,6 +229,9 @@ export function PreferencesDialog({
             </TabsTrigger>
             <TabsTrigger value="bt" className="flex-1">
               BT
+            </TabsTrigger>
+            <TabsTrigger value="network" className="flex-1">
+              网络
             </TabsTrigger>
             <TabsTrigger value="app" className="flex-1">
               应用
@@ -301,6 +331,62 @@ export function PreferencesDialog({
                   set("autoUpdateTrackers", checked)
                 }
               />
+            </Row>
+          </TabsContent>
+
+          <TabsContent value="network" className="mt-2 divide-y">
+            <Row label="BT 监听端口" hint="改动后需重启引擎">
+              <NumberInput
+                value={settings.btPort}
+                min={1024}
+                max={65535}
+                onCommit={(value) => set("btPort", value)}
+              />
+            </Row>
+            <Row
+              label="UPnP 端口映射"
+              hint="让路由器把 BT 端口转发进来，提升连通性"
+            >
+              <Switch
+                checked={settings.upnp}
+                onCheckedChange={(checked) => set("upnp", checked)}
+              />
+            </Row>
+            <Row
+              label="固定 RPC 端口"
+              hint="填 0 为随机端口（更安全）。固定后密钥也会持久化，供浏览器扩展连接"
+            >
+              <NumberInput
+                value={settings.rpcPort}
+                min={0}
+                max={65535}
+                onCommit={(value) => set("rpcPort", value)}
+              />
+            </Row>
+            {engine && (
+              <Row label="当前 RPC 地址" hint="点击复制，可填入 AriaNg 等客户端">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleCopyRpc()}
+                >
+                  <ClipboardCopy className="size-4" />
+                  127.0.0.1:{engine.rpcPort}
+                </Button>
+              </Row>
+            )}
+            <Row label="重启下载引擎" hint="应用端口相关改动">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={restarting}
+                onClick={() => void handleRestartEngine()}
+              >
+                <RotateCcw
+                  className={`size-4 ${restarting ? "animate-spin" : ""}`}
+                />
+                立即重启
+              </Button>
             </Row>
           </TabsContent>
 

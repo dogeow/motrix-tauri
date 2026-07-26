@@ -36,9 +36,20 @@ npm run tauri build
 
 静态 aria2 配置在 `src-tauri/resources/aria2.conf`，动态项（端口、密钥、目录、会话）由 Rust 以命令行参数传入并覆盖同名配置。
 
-## 尚未实现（相对 Motrix）
+## 功能
 
-- 系统托盘 / 全局限速与更多偏好设置界面
-- `magnet:` / `mo:` 协议注册、.torrent 文件关联（tauri-plugin-deep-link + fileAssociations）
-- 开机启动、自动更新、UPnP 端口映射
-- 任务详情页（分文件选择、Peers 列表）、批量重命名、tracker 自动更新
+- 任务列表：全部 / 下载中 / 等待中 / 已停止，搜索、排序、多选批量操作
+- 添加任务：链接、种子文件、拖放 .torrent、`magnet:` 深链、剪贴板监听
+- 任务详情：多文件种子的分文件选择、Peers 列表、活动连接
+- 偏好设置：下载目录、并发数、连接数、分片、全局限速、做种比例、
+  BT 端口、UPnP、主题、开机启动、完成通知
+- 系统托盘（macOS 菜单栏显示速度）、Dock 进度条、窗口状态记忆
+- Tracker 列表自动从 ngosang/trackerslist 更新
+- aria2 崩溃后自动重启（指数退避），RPC 端口与密钥在整个运行期固定
+
+## 尚未实现
+
+- **自动更新**：需要先用 `npm run tauri signer generate` 生成 minisign 密钥对，
+  并准备好托管 `latest.json` 的地址，之后才能接 `tauri-plugin-updater`
+- **国际化**：界面目前是硬编码中文，没有引入 i18n 框架
+- 批量重命名、下载完成后自动执行脚本

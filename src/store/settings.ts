@@ -14,6 +14,11 @@ export interface Settings {
   maxOverallDownloadLimit: string;
   maxOverallUploadLimit: string;
   seedRatio: number;
+  /** BitTorrent listen port; pinned so a UPnP mapping is meaningful. */
+  btPort: number;
+  upnp: boolean;
+  /** 0 keeps the RPC port random; a fixed port also pins the secret. */
+  rpcPort: number;
   notifyOnComplete: boolean;
   watchClipboard: boolean;
   autoUpdateTrackers: boolean;
@@ -29,6 +34,9 @@ export const DEFAULT_SETTINGS: Settings = {
   maxOverallDownloadLimit: "0",
   maxOverallUploadLimit: "0",
   seedRatio: 1,
+  btPort: 51413,
+  upnp: false,
+  rpcPort: 0,
   notifyOnComplete: true,
   watchClipboard: false,
   autoUpdateTrackers: true,

@@ -1,6 +1,7 @@
 mod engine;
 mod links;
 mod tray;
+mod upnp;
 
 use base64::Engine as _;
 use tauri::{Manager, WindowEvent};
@@ -170,6 +171,7 @@ pub fn run() {
         ))
         .manage(engine::EngineState::default())
         .manage(links::PendingTargets::default())
+        .manage(upnp::UpnpState::default())
         .invoke_handler(tauri::generate_handler![
             get_engine_info,
             restart_engine,

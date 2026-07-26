@@ -71,6 +71,62 @@ fn data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
+/// Network preferences the Rust side needs before the webview exists.
+pub struct NetSettings {
+    /// 0 keeps the RPC port random (and the secret ephemeral).
+    pub rpc_port: u16,
+    pub bt_port: u16,
+    pub upnp: bool,
+}
+
+const DEFAULT_BT_PORT: u16 = 51413;
+
+fn read_net_settings(app: &AppHandle) -> NetSettings {
+    use tauri_plugin_store::StoreExt;
+
+    let settings = app
+        .store("settings.json")
+        .ok()
+        .and_then(|store| store.get("settings"));
+    let get_u16 = |key: &str, fallback: u16| -> u16 {
+        settings
+            .as_ref()
+            .and_then(|value| value.get(key))
+            .and_then(|value| value.as_u64())
+            .map(|value| value as u16)
+            .unwrap_or(fallback)
+    };
+
+    NetSettings {
+        rpc_port: get_u16("rpcPort", 0),
+        bt_port: get_u16("btPort", DEFAULT_BT_PORT),
+        upnp: settings
+            .as_ref()
+            .and_then(|value| value.get("upnp"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+    }
+}
+
+/// A pinned RPC port implies a stable secret, so browser extensions keep
+/// working across launches. Random ports keep an ephemeral secret.
+fn persistent_secret(app: &AppHandle) -> String {
+    use tauri_plugin_store::StoreExt;
+
+    let Ok(store) = app.store("settings.json") else {
+        return random_secret();
+    };
+    if let Some(secret) = store.get("rpcSecret").and_then(|v| v.as_str().map(String::from)) {
+        if !secret.is_empty() {
+            return secret;
+        }
+    }
+    let secret = random_secret();
+    store.set("rpcSecret", serde_json::Value::String(secret.clone()));
+    let _ = store.save();
+    secret
+}
+
 /// Create the connection details on first call; reuse them on every restart.
 fn ensure_info(app: &AppHandle) -> Result<EngineInfo, String> {
     let state = app.state::<EngineState>();
@@ -84,9 +140,18 @@ fn ensure_info(app: &AppHandle) -> Result<EngineInfo, String> {
         .or_else(|_| app.path().home_dir())
         .map_err(|e| e.to_string())?;
 
+    let net = read_net_settings(app);
     let info = EngineInfo {
-        rpc_port: pick_free_port(),
-        rpc_secret: random_secret(),
+        rpc_port: if net.rpc_port > 0 {
+            net.rpc_port
+        } else {
+            pick_free_port()
+        },
+        rpc_secret: if net.rpc_port > 0 {
+            persistent_secret(app)
+        } else {
+            random_secret()
+        },
         download_dir: download_dir.to_string_lossy().into_owned(),
     };
     *state.info.lock().unwrap() = Some(info.clone());
@@ -109,8 +174,14 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
         .resolve("resources/aria2.conf", BaseDirectory::Resource)
         .map_err(|e| e.to_string())?;
     let session = dir.join("download.session");
+    let net = read_net_settings(app);
 
+    // Pinning the BT port is what makes a UPnP mapping meaningful.
     let mut args: Vec<String> = vec![
+        format!("--listen-port={}", net.bt_port),
+        format!("--dht-listen-port={}", net.bt_port),
+    ];
+    args.extend([
         format!("--conf-path={}", conf_path.display()),
         "--enable-rpc=true".into(),
         "--rpc-listen-all=false".into(),
@@ -122,9 +193,16 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
         format!("--dht-file-path={}", dir.join("dht.dat").display()),
         format!("--dht-file-path6={}", dir.join("dht6.dat").display()),
         format!("--file-allocation={}", file_allocation()),
-    ];
+    ]);
     if session.exists() {
         args.push(format!("--input-file={}", session.display()));
+    }
+
+    let upnp = app.state::<crate::upnp::UpnpState>();
+    if net.upnp {
+        upnp.start(net.bt_port);
+    } else {
+        upnp.stop();
     }
 
     let (mut rx, child) = app
@@ -194,6 +272,8 @@ pub fn restart(app: &AppHandle) -> Result<(), String> {
 
 /// Ask aria2 to shut down gracefully (saves the session), then kill as fallback.
 pub fn shutdown(app: &AppHandle) {
+    app.state::<crate::upnp::UpnpState>().stop();
+
     let state = app.state::<EngineState>();
     state.shutting_down.store(true, Ordering::SeqCst);
 
