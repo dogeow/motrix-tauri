@@ -49,16 +49,26 @@ export function RemoveTaskDialog({
       // Sequential: aria2 races removal against its own bookkeeping, and a
       // parallel burst makes "record not found" errors far more likely.
       let failed = 0;
+      const errors: string[] = [];
       for (const target of targets) {
         try {
           await removeTask(target, deleteFiles);
-        } catch {
+        } catch (error) {
           failed += 1;
+          errors.push(
+            `${taskName(target)}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
         }
       }
       if (failed > 0) {
         toast.warning(
-          t("remove.partial", { done: targets.length - failed, failed })
+          t("remove.partial", {
+            done: targets.length - failed,
+            failed,
+            error: errors[0],
+          })
         );
       } else {
         toast.success(

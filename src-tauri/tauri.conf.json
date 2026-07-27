@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "motrix-tauri",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "identifier": "com.dogeow.motrix",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -33,7 +33,7 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMkRCRTVGRDhBMTBCMzcKUldRM0M2SFlYNzR0Y0xwb1N6WFZhWllqWldRbHRJbUtRSkRRRGdjdlR5Y3h3ZGJGQlNIVlc5OEQK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDQjUzRjI2QkU3NTAwMDMKUldRREFIVytKaisxYkVHRFJzRjgwN3BuU09MYno4N1Y2OGxDWGFHYnlmTkZSV25yd0FuUEhlMksK",
       "endpoints": [
         "https://github.com/dogeow/motrix-tauri/releases/latest/download/latest.json"
       ]

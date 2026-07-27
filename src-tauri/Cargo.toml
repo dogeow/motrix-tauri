@@ -1,6 +1,6 @@
 [package]
 name = "motrix-tauri"
-version = "0.1.0"
+version = "0.0.1"
 description = "A minimal aria2-based download manager built with Tauri"
 authors = ["doge"]
 edition = "2021"
@@ -36,3 +36,24 @@ tauri-plugin-http = "2.5.9"
 igd-next = "0.17.1"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSColor",
+    "NSControl",
+    "NSDockTile",
+    "NSFont",
+    "NSImage",
+    "NSImageView",
+    "NSResponder",
+    "NSTextField",
+    "NSView",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSGeometry",
+    "NSString",
+] }

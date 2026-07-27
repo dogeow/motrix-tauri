@@ -32,7 +32,11 @@ import { pickDirectory, toastError, updateTrackers } from "@/lib/actions";
 import { checkForUpdate } from "@/lib/updater";
 import { LOCALE_NAMES, t, useTranslation, type LocaleSetting } from "@/lib/i18n";
 import { useAppStore } from "@/store/app";
-import { useSettingsStore, type ThemeMode } from "@/store/settings";
+import {
+  normalizeSpeedLimit,
+  useSettingsStore,
+  type ThemeMode,
+} from "@/store/settings";
 
 interface PreferencesDialogProps {
   open: boolean;
@@ -78,7 +82,7 @@ function SpeedInput({
     <Input
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => onCommit(draft.trim() || "0")}
+      onBlur={() => onCommit(normalizeSpeedLimit(draft))}
       className="w-28 text-right font-mono text-xs"
       placeholder="0"
     />

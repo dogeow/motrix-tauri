@@ -2399,10 +2399,13 @@ dependencies = [
 
 [[package]]
 name = "motrix-tauri"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "igd-next",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "rand 0.9.5",
  "serde",
  "serde_json",

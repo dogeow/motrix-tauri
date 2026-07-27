@@ -25,6 +25,10 @@ export interface Aria2Task {
   status: TaskStatus;
   totalLength: string;
   completedLength: string;
+  /** Present only while aria2 is hash-checking existing files. */
+  verifiedLength?: string;
+  /** "true" while this task is queued for a hash check. */
+  verifyIntegrityPending?: string;
   uploadLength: string;
   downloadSpeed: string;
   uploadSpeed: string;

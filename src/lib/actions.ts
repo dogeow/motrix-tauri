@@ -130,6 +130,28 @@ export async function purgeStopped(): Promise<void> {
 
 const STOPPED: ReadonlySet<string> = new Set(["complete", "error", "removed"]);
 
+const REMOVE_PAUSE_POLL_MS = 100;
+const REMOVE_PAUSE_ATTEMPTS = 30;
+
+/** Hash checking must leave the active state before aria2 can remove it. */
+async function stopIntegrityCheck(task: Aria2Task): Promise<void> {
+  const checking =
+    task.verifiedLength !== undefined ||
+    task.verifyIntegrityPending === "true";
+  if (!checking || task.status !== "active") return;
+
+  await aria2().call("forcePause", task.gid);
+  for (let attempt = 0; attempt < REMOVE_PAUSE_ATTEMPTS; attempt += 1) {
+    const current = await aria2().call<Pick<Aria2Task, "status">>(
+      "tellStatus",
+      task.gid,
+      ["status"]
+    );
+    if (current.status !== "active") return;
+    await new Promise((resolve) => setTimeout(resolve, REMOVE_PAUSE_POLL_MS));
+  }
+}
+
 export async function removeTask(
   task: Aria2Task,
   deleteFiles: boolean
@@ -137,10 +159,18 @@ export async function removeTask(
   if (STOPPED.has(task.status)) {
     await aria2().call("removeDownloadResult", task.gid);
   } else {
-    try {
-      await aria2().call("remove", task.gid);
-    } catch {
+    const checking =
+      task.verifiedLength !== undefined ||
+      task.verifyIntegrityPending === "true";
+    if (checking) {
+      await stopIntegrityCheck(task);
       await aria2().call("forceRemove", task.gid);
+    } else {
+      try {
+        await aria2().call("remove", task.gid);
+      } catch {
+        await aria2().call("forceRemove", task.gid);
+      }
     }
     // Drop the stopped record too so the task disappears entirely.
     try {

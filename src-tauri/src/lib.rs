@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod dock;
 mod engine;
 mod links;
 mod tray;
@@ -129,6 +131,27 @@ fn set_tray_tooltip(app: tauri::AppHandle, tooltip: String) {
     }
 }
 
+/// Show aggregate download/upload speeds over the macOS Dock icon.
+#[tauri::command]
+fn set_dock_speeds(
+    app: tauri::AppHandle,
+    download: Option<String>,
+    upload: Option<String>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        app.run_on_main_thread(move || {
+            dock::set_speeds(download.as_deref(), upload.as_deref());
+        })
+        .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, download, upload);
+        Ok(())
+    }
+}
+
 /// Taskbar/Dock progress. `progress` is 0-100, or None to clear.
 #[tauri::command]
 fn set_progress(app: tauri::AppHandle, progress: Option<f64>) {
@@ -183,6 +206,7 @@ pub fn run() {
             take_pending_targets,
             set_tray_title,
             set_tray_tooltip,
+            set_dock_speeds,
             set_progress
         ])
         .setup(|app| {

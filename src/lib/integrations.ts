@@ -16,8 +16,20 @@ import { useSettingsStore } from "@/store/settings";
 
 const CLIPBOARD_INTERVAL = 1500;
 const LINK_PATTERN = /^(magnet:\?|https?:\/\/|ftp:\/\/)\S+$/i;
+const DOCK_SPEED_UNITS = ["B", "KB", "MB", "GB", "TB"];
 
 type Cleanup = () => void;
+
+/** Dock labels stay legible at small sizes by using rounded whole units. */
+function formatDockSpeed(value: number): string {
+  let speed = Number.isFinite(value) && value > 0 ? value : 0;
+  let unit = 0;
+  while (speed >= 1024 && unit < DOCK_SPEED_UNITS.length - 1) {
+    speed /= 1024;
+    unit += 1;
+  }
+  return `${Math.round(speed)} ${DOCK_SPEED_UNITS[unit]}/s`;
+}
 
 async function handleTargets(targets: string[]): Promise<void> {
   if (targets.length === 0) return;
@@ -53,11 +65,46 @@ async function wireEngineEvents(): Promise<Cleanup> {
   });
   const started = await listen("engine-started", () => {
     toast.success(t("engine.ready"), { id: "engine" });
-    void useSettingsStore.getState().syncToEngine();
   });
   return () => {
     down();
     started();
+  };
+}
+
+/**
+ * Apply persisted runtime settings once both the store and aria2 RPC are
+ * ready. Re-arm after every reconnect so an engine restart cannot lose them.
+ */
+function wireSettingsSync(): Cleanup {
+  let syncedForConnection = false;
+
+  const syncIfReady = () => {
+    const connected = useAppStore.getState().connected;
+    const loaded = useSettingsStore.getState().loaded;
+    if (!connected) {
+      syncedForConnection = false;
+      return;
+    }
+    if (!loaded || syncedForConnection) return;
+
+    syncedForConnection = true;
+    void useSettingsStore
+      .getState()
+      .syncToEngine()
+      .catch(() => {
+        // A reconnect re-arms this; direct edits surface their own error toast.
+        syncedForConnection = false;
+      });
+  };
+
+  const unsubscribeApp = useAppStore.subscribe(syncIfReady);
+  const unsubscribeSettings = useSettingsStore.subscribe(syncIfReady);
+  syncIfReady();
+
+  return () => {
+    unsubscribeApp();
+    unsubscribeSettings();
   };
 }
 
@@ -140,14 +187,19 @@ function wireCompletionNotices(): Cleanup {
   return detach;
 }
 
-/** Mirror aggregate speed onto the tray, and progress onto the Dock. */
+/** Mirror aggregate speeds onto macOS system chrome and task progress. */
 function wireStatusIndicators(): Cleanup {
-  let lastTitle = "";
-  return useAppStore.subscribe((state) => {
+  let lastTitle: string | undefined;
+  let lastDockSpeeds: string | undefined;
+  let lastProgress: number | null | undefined;
+
+  const update = (state: ReturnType<typeof useAppStore.getState>) => {
     const active = state.tasks.filter((task) => task.status === "active");
+    const downloadSpeed = Number(state.stat?.downloadSpeed ?? 0);
+    const uploadSpeed = Number(state.stat?.uploadSpeed ?? 0);
     const title =
-      state.stat && Number(state.stat.downloadSpeed) > 0
-        ? `↓ ${formatSpeed(state.stat.downloadSpeed)}`
+      downloadSpeed > 0
+        ? `↓ ${formatSpeed(downloadSpeed)}`
         : "";
     if (title !== lastTitle) {
       lastTitle = title;
@@ -157,15 +209,42 @@ function wireStatusIndicators(): Cleanup {
       });
     }
 
+    const showSpeeds =
+      Number(state.stat?.numActive ?? 0) > 0 ||
+      downloadSpeed > 0 ||
+      uploadSpeed > 0;
+    const download = showSpeeds ? formatDockSpeed(downloadSpeed) : "";
+    const upload = showSpeeds ? formatDockSpeed(uploadSpeed) : "";
+    const dockSpeeds = showSpeeds ? `${download}|${upload}` : "";
+    if (dockSpeeds !== lastDockSpeeds) {
+      lastDockSpeeds = dockSpeeds;
+      void invoke("set_dock_speeds", {
+        download: showSpeeds ? download : null,
+        upload: showSpeeds ? upload : null,
+      });
+    }
+
     const total = active.reduce((sum, task) => sum + Number(task.totalLength), 0);
     const done = active.reduce(
       (sum, task) => sum + Number(task.completedLength),
       0
     );
-    void invoke("set_progress", {
-      progress: total > 0 ? (done / total) * 100 : null,
-    });
-  });
+    const progress = total > 0 ? (done / total) * 100 : null;
+    if (progress !== lastProgress) {
+      lastProgress = progress;
+      void invoke("set_progress", { progress });
+    }
+  };
+
+  update(useAppStore.getState());
+  const unsubscribe = useAppStore.subscribe(update);
+  return () => {
+    unsubscribe();
+    void invoke("set_tray_title", { title: null });
+    void invoke("set_tray_tooltip", { tooltip: "Motrix" });
+    void invoke("set_dock_speeds", { download: null, upload: null });
+    void invoke("set_progress", { progress: null });
+  };
 }
 
 /** Wire every OS-level integration; returns a single teardown. */
@@ -177,6 +256,7 @@ export async function initIntegrations(): Promise<Cleanup> {
     wireDragDrop(),
     Promise.resolve(wireClipboard()),
     Promise.resolve(wireCompletionNotices()),
+    Promise.resolve(wireSettingsSync()),
     Promise.resolve(wireStatusIndicators()),
   ]);
   return () => cleanups.forEach((cleanup) => cleanup());
