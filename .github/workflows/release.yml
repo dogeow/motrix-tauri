@@ -1,6 +1,6 @@
 name: Release
 
-# Tag a version to publish: git tag v0.1.1 && git push origin v0.1.1
+# Tag a version to publish: git tag v0.0.1 && git push origin v0.0.1
 on:
   push:
     tags:
@@ -22,7 +22,9 @@ jobs:
           - platform: ubuntu-22.04
             args: ""
           - platform: windows-latest
-            args: ""
+            # WiX MSI packaging is unreliable on current GitHub Windows runners.
+            # NSIS also supports Tauri's signed updater artifacts.
+            args: --bundles nsis
 
     runs-on: ${{ matrix.platform }}
     steps:
