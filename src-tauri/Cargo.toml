@@ -1,5 +1,5 @@
 [package]
-name = "motrix-tauri"
+name = "motrix"
 version = "0.0.1"
 description = "A minimal aria2-based download manager built with Tauri"
 authors = ["doge"]
