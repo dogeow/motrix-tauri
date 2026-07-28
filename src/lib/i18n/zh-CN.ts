@@ -133,7 +133,7 @@ export const zhCN = {
   "prefs.downLimit": "全局下载限速",
   "prefs.downLimitHint": "0 表示不限速；纯数字按 KB/s，也可用 512K / 2M",
   "prefs.upLimit": "全局上传限速",
-  "prefs.upLimitHint": "0 表示不限速；纯数字按 KB/s，也可用 512K / 2M",
+  "prefs.upLimitHint": "0 表示不限速；纯数字按 KB/s；BT 最低稳定限速为 16 KB/s",
   "prefs.seedRatio": "做种比例",
   "prefs.seedRatioHint": "达到后停止做种，0 表示一直做种",
   "prefs.trackers": "Tracker 列表",

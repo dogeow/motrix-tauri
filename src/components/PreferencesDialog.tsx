@@ -34,6 +34,7 @@ import { LOCALE_NAMES, t, useTranslation, type LocaleSetting } from "@/lib/i18n"
 import { useAppStore } from "@/store/app";
 import {
   normalizeSpeedLimit,
+  normalizeUploadSpeedLimit,
   useSettingsStore,
   type ThemeMode,
 } from "@/store/settings";
@@ -71,20 +72,37 @@ function Row({
 function SpeedInput({
   value,
   onCommit,
+  normalize = normalizeSpeedLimit,
+  title = "0 = unlimited; bare numbers are KB/s",
 }: {
   value: string;
   onCommit: (value: string) => void;
+  normalize?: (value: string) => string;
+  title?: string;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
+
+  const commit = () => {
+    const next = normalize(draft);
+    setDraft(next);
+    if (next !== value) onCommit(next);
+  };
 
   return (
     <Input
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => onCommit(normalizeSpeedLimit(draft))}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
       className="w-28 text-right font-mono text-xs"
       placeholder="0"
+      title={title}
     />
   );
 }
@@ -310,6 +328,8 @@ export function PreferencesDialog({
               <SpeedInput
                 value={settings.maxOverallUploadLimit}
                 onCommit={(value) => set("maxOverallUploadLimit", value)}
+                normalize={normalizeUploadSpeedLimit}
+                title="0 = unlimited; minimum stable BT limit is 16 KB/s"
               />
             </Row>
           </TabsContent>

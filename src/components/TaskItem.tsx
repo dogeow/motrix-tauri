@@ -214,22 +214,22 @@ export function TaskItem({
           <Progress value={visibleProgress} className="mt-2 h-1" />
         )}
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs tabular-nums text-muted-foreground">
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs tabular-nums text-muted-foreground">
           {meta.map((item, index) => (
             <Fragment key={index}>
               {index > 0 && <span className="opacity-40">·</span>}
-              <span>{item}</span>
+              <span className="min-w-0">{item}</span>
             </Fragment>
           ))}
-          {errored && task.errorMessage && (
-            <span
-              className="truncate text-destructive"
-              title={task.errorMessage}
-            >
-              {task.errorMessage}
-            </span>
-          )}
         </div>
+        {errored && task.errorMessage && (
+          <p
+            className="mt-1 line-clamp-2 min-w-0 break-all text-xs leading-snug text-destructive"
+            title={task.errorMessage}
+          >
+            {task.errorMessage}
+          </p>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">

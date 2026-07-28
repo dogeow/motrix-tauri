@@ -136,7 +136,7 @@ export const en: Record<TranslationKey, string> = {
   "prefs.downLimit": "Global download limit",
   "prefs.downLimitHint": "0 is unlimited; bare numbers mean KB/s; accepts 512K / 2M",
   "prefs.upLimit": "Global upload limit",
-  "prefs.upLimitHint": "0 is unlimited; bare numbers mean KB/s; accepts 512K / 2M",
+  "prefs.upLimitHint": "0 is unlimited; bare numbers mean KB/s; minimum stable BT limit is 16 KB/s",
   "prefs.seedRatio": "Seed ratio",
   "prefs.seedRatioHint": "Stop seeding at this ratio; 0 seeds forever",
   "prefs.trackers": "Tracker list",

@@ -95,11 +95,75 @@ pub struct NetSettings {
     pub rpc_port: u16,
     pub bt_port: u16,
     pub upnp: bool,
+    /// Byte/sec strings for aria2 (`"0"` = unlimited).
+    pub max_overall_download_limit: String,
+    pub max_overall_upload_limit: String,
 }
 
 const DEFAULT_BT_PORT: u16 = 51413;
+const MIN_STABLE_BT_UPLOAD_LIMIT: u64 = 16 * 1024;
 /// How many ports past the configured one to try before giving up.
 const PORT_SCAN_RANGE: u16 = 10;
+
+/// Mirror of the frontend's speed parsing so limits work before the webview
+/// connects (and survive a restart where RPC sync is briefly unavailable).
+/// Bare numbers mean KiB/s; accepts `512K` / `2M` / `1KB` style suffixes.
+fn speed_limit_to_aria2(value: &str) -> String {
+    let raw = value
+        .trim()
+        .to_uppercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    if raw.is_empty() || raw == "0" {
+        return "0".into();
+    }
+
+    let mut s = raw.trim_end_matches("/S").to_string();
+    for (from, to) in [
+        ("KIB", "K"),
+        ("MIB", "M"),
+        ("GIB", "G"),
+        ("KB", "K"),
+        ("MB", "M"),
+        ("GB", "G"),
+    ] {
+        if let Some(prefix) = s.strip_suffix(from) {
+            s = format!("{prefix}{to}");
+            break;
+        }
+    }
+
+    // Bare number → KiB/s (UI convention; aria2 would otherwise treat it as B/s).
+    if s.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        s = format!("{s}K");
+    }
+
+    let Some(unit) = s.chars().last().filter(|c| matches!(c, 'K' | 'M' | 'G')) else {
+        return "0".into();
+    };
+    let amount: f64 = match s[..s.len() - 1].parse() {
+        Ok(v) if v > 0.0 => v,
+        _ => return "0".into(),
+    };
+    let mult = match unit {
+        'K' => 1024.0,
+        'M' => 1024.0 * 1024.0,
+        'G' => 1024.0 * 1024.0 * 1024.0,
+        _ => return "0".into(),
+    };
+    ((amount * mult).round() as u64).to_string()
+}
+
+fn upload_speed_limit_to_aria2(value: &str) -> String {
+    let parsed = speed_limit_to_aria2(value);
+    match parsed.parse::<u64>() {
+        Ok(value) if value > 0 && value < MIN_STABLE_BT_UPLOAD_LIMIT => {
+            MIN_STABLE_BT_UPLOAD_LIMIT.to_string()
+        }
+        _ => parsed,
+    }
+}
 
 fn read_net_settings(app: &AppHandle) -> NetSettings {
     use tauri_plugin_store::StoreExt;
@@ -116,6 +180,22 @@ fn read_net_settings(app: &AppHandle) -> NetSettings {
             .map(|value| value as u16)
             .unwrap_or(fallback)
     };
+    let get_speed = |key: &str, upload: bool| -> String {
+        let raw = settings
+            .as_ref()
+            .and_then(|value| value.get(key))
+            .map(|value| match value {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => "0".into(),
+            })
+            .unwrap_or_else(|| "0".into());
+        if upload {
+            upload_speed_limit_to_aria2(&raw)
+        } else {
+            speed_limit_to_aria2(&raw)
+        }
+    };
 
     NetSettings {
         rpc_port: get_u16("rpcPort", 0),
@@ -125,6 +205,8 @@ fn read_net_settings(app: &AppHandle) -> NetSettings {
             .and_then(|value| value.get("upnp"))
             .and_then(|value| value.as_bool())
             .unwrap_or(false),
+        max_overall_download_limit: get_speed("maxOverallDownloadLimit", false),
+        max_overall_upload_limit: get_speed("maxOverallUploadLimit", true),
     }
 }
 
@@ -136,7 +218,10 @@ fn persistent_secret(app: &AppHandle) -> String {
     let Ok(store) = app.store("settings.json") else {
         return random_secret();
     };
-    if let Some(secret) = store.get("rpcSecret").and_then(|v| v.as_str().map(String::from)) {
+    if let Some(secret) = store
+        .get("rpcSecret")
+        .and_then(|v| v.as_str().map(String::from))
+    {
         if !secret.is_empty() {
             return secret;
         }
@@ -222,6 +307,18 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
         format!("--dht-file-path={}", dir.join("dht.dat").display()),
         format!("--dht-file-path6={}", dir.join("dht6.dat").display()),
         format!("--file-allocation={}", file_allocation()),
+        // Apply speed limits at spawn so they hold even before the webview
+        // finishes loading / re-syncing via changeGlobalOption.
+        format!(
+            "--max-overall-download-limit={}",
+            net.max_overall_download_limit
+        ),
+        format!(
+            "--max-overall-upload-limit={}",
+            net.max_overall_upload_limit
+        ),
+        format!("--max-download-limit={}", net.max_overall_download_limit),
+        format!("--max-upload-limit={}", net.max_overall_upload_limit),
     ]);
     if session.exists() {
         args.push(format!("--input-file={}", session.display()));
@@ -233,6 +330,11 @@ fn spawn_engine(app: &AppHandle, attempt: u32) -> Result<(), String> {
     } else {
         upnp.stop();
     }
+
+    println!(
+        "[aria2] spawn limits: download={} upload={}",
+        net.max_overall_download_limit, net.max_overall_upload_limit
+    );
 
     let (mut rx, child) = app
         .shell()
@@ -280,7 +382,11 @@ fn schedule_restart(app: AppHandle, attempt: u32) {
     let delay = Duration::from_secs(1 << attempt.min(MAX_BACKOFF_EXP));
     std::thread::spawn(move || {
         std::thread::sleep(delay);
-        if app.state::<EngineState>().shutting_down.load(Ordering::SeqCst) {
+        if app
+            .state::<EngineState>()
+            .shutting_down
+            .load(Ordering::SeqCst)
+        {
             return;
         }
         if let Err(error) = spawn_engine(&app, attempt + 1) {
@@ -318,6 +424,36 @@ fn kill_current(app: &AppHandle) {
     let child = app.state::<EngineState>().child.lock().unwrap().take();
     if let Some(child) = child {
         let _ = child.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{speed_limit_to_aria2, upload_speed_limit_to_aria2};
+
+    #[test]
+    fn bare_number_is_kib_per_sec() {
+        assert_eq!(speed_limit_to_aria2("1"), "1024");
+        assert_eq!(speed_limit_to_aria2("512"), "524288");
+    }
+
+    #[test]
+    fn explicit_units() {
+        assert_eq!(speed_limit_to_aria2("1K"), "1024");
+        assert_eq!(speed_limit_to_aria2("1KB"), "1024");
+        assert_eq!(speed_limit_to_aria2("1kb/s"), "1024");
+        assert_eq!(speed_limit_to_aria2("2M"), "2097152");
+        assert_eq!(speed_limit_to_aria2("0"), "0");
+        assert_eq!(speed_limit_to_aria2(""), "0");
+    }
+
+    #[test]
+    fn upload_limit_clamps_sub_block_values() {
+        assert_eq!(upload_speed_limit_to_aria2("1"), "16384");
+        assert_eq!(upload_speed_limit_to_aria2("15K"), "16384");
+        assert_eq!(upload_speed_limit_to_aria2("16K"), "16384");
+        assert_eq!(upload_speed_limit_to_aria2("32K"), "32768");
+        assert_eq!(upload_speed_limit_to_aria2("0"), "0");
     }
 }
 
