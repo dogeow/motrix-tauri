@@ -36,6 +36,8 @@
 - **界面层**：React 19 / TypeScript / Vite 7 / Tailwind CSS v4 / shadcn / Zustand
   - 通过本地 WebSocket JSON-RPC 直接操作 aria2
   - 使用 aria2 事件通知和定时轮询刷新任务状态
+  - 页面由 `components/app`、`components/preferences` 与 `hooks` 分层组合
+  - 限速、筛选和排序等纯逻辑位于 `lib`，使用 Vitest 单元测试保护
 - **下载引擎**：[aria2](https://github.com/aria2/aria2)
   - sidecar 位于 `src-tauri/binaries/`
   - 静态配置位于 `src-tauri/resources/aria2.conf`
@@ -60,6 +62,12 @@ npm run tauri dev
 
 ```bash
 npm run build
+```
+
+提交前质量检查（ESLint、TypeScript、Vitest）：
+
+```bash
+npm run check
 ```
 
 桌面安装包：
@@ -103,6 +111,8 @@ git push --follow-tags
 ```
 
 工作流默认创建草稿 Release，检查构建产物后再手动发布。
+
+普通分支推送和 Pull Request 会先由 `.github/workflows/ci.yml` 检查前端代码、单元测试、生产构建、Rust 格式和 Rust 测试。
 
 更新端点：
 

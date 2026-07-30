@@ -2,6 +2,11 @@ import { create } from "zustand";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import { aria2 } from "./app";
 import { setLocale, type LocaleSetting } from "@/lib/i18n";
+import {
+  normalizeSpeedLimit,
+  normalizeUploadSpeedLimit,
+  speedLimitToAria2,
+} from "@/lib/speed-limit";
 import type { Aria2Options, Aria2Task } from "@/lib/types";
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -46,73 +51,6 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "system",
   autostart: false,
 };
-
-/**
- * aria2 queues a complete BitTorrent block before its rate check can stop the
- * next one. Keeping the configured upload ceiling at or above one normal
- * 16 KiB block avoids presenting a value the engine cannot enforce steadily.
- */
-export const MIN_STABLE_BT_UPLOAD_LIMIT = 16 * 1024;
-
-/**
- * Normalize a user-entered speed for storage / display.
- * Bare numbers mean KiB/s (UI convention). Accepts 512K, 2M, 1KB, 1.5M, etc.
- * aria2 itself treats a bare "1" as one byte/sec — never send that form.
- */
-export function normalizeSpeedLimit(value: string | number | null | undefined): string {
-  const raw = String(value ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "");
-  if (!raw || raw === "0") return "0";
-
-  // 1KB/S, 1MB/S → drop /S; 1KIB/1MIB → K/M; 1KB/1MB → K/M.
-  let s = raw.replace(/\/S$/, "");
-  s = s.replace(/KIB$/, "K").replace(/MIB$/, "M").replace(/GIB$/, "G");
-  s = s.replace(/KB$/, "K").replace(/MB$/, "M").replace(/GB$/, "G");
-
-  if (/^\d+(?:\.\d+)?$/.test(s)) return `${s}K`;
-  if (/^\d+(?:\.\d+)?[KMG]$/.test(s)) return s;
-  return "0";
-}
-
-/**
- * Convert a speed limit to an integer byte/sec value.
- * Returns 0 for unlimited / invalid.
- */
-export function speedLimitBytes(value: string | number | null | undefined): number {
-  const normalized = normalizeSpeedLimit(value);
-  if (normalized === "0") return 0;
-
-  const match = normalized.match(/^(\d+(?:\.\d+)?)([KMG])$/);
-  if (!match) return 0;
-
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return 0;
-
-  const mult =
-    match[2] === "K" ? 1024 : match[2] === "M" ? 1024 * 1024 : 1024 * 1024 * 1024;
-  return Math.round(amount * mult);
-}
-
-/** Clamp unsupported sub-block BT upload limits to the stable minimum. */
-export function normalizeUploadSpeedLimit(
-  value: string | number | null | undefined
-): string {
-  const normalized = normalizeSpeedLimit(value);
-  const bytes = speedLimitBytes(normalized);
-  if (bytes > 0 && bytes < MIN_STABLE_BT_UPLOAD_LIMIT) return "16K";
-  return normalized;
-}
-
-/**
- * aria2-ready limit string. Prefer the K/M form (e.g. "1K") so option handlers
- * always run unit parsing; bare bytes are also accepted.
- */
-export function speedLimitToAria2(value: string | number | null | undefined): string {
-  const normalized = normalizeSpeedLimit(value);
-  return normalized === "0" ? "0" : normalized;
-}
 
 /**
  * Only these are changeable on a live aria2 via changeGlobalOption; the rest

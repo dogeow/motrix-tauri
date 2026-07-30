@@ -51,6 +51,7 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run check
 
       - uses: tauri-apps/tauri-action@v0
         env:

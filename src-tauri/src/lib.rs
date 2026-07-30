@@ -229,16 +229,14 @@ pub fn run() {
                 let _ = deep_link.register_all();
 
                 if let Ok(Some(urls)) = deep_link.get_current() {
-                    let targets =
-                        links::filter_targets(urls.iter().map(|url| url.to_string()));
+                    let targets = links::filter_targets(urls.iter().map(|url| url.to_string()));
                     links::dispatch(handle, targets);
                 }
 
                 let link_handle = handle.clone();
                 deep_link.on_open_url(move |event| {
-                    let targets = links::filter_targets(
-                        event.urls().iter().map(|url| url.to_string()),
-                    );
+                    let targets =
+                        links::filter_targets(event.urls().iter().map(|url| url.to_string()));
                     links::dispatch(&link_handle, targets);
                 });
             }

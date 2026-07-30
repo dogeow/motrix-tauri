@@ -2,9 +2,14 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { Aria2Client } from "@/lib/aria2";
 import { t } from "@/lib/i18n";
-import type { Aria2Task, EngineInfo, GlobalStat } from "@/lib/types";
+import type {
+  Aria2Task,
+  Category,
+  EngineInfo,
+  GlobalStat,
+} from "@/lib/types";
 
-export type Category = "all" | "active" | "waiting" | "stopped";
+export type { Category } from "@/lib/types";
 
 let client: Aria2Client | null = null;
 let initStarted = false;

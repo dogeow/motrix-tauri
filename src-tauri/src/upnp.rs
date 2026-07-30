@@ -66,7 +66,10 @@ impl UpnpState {
 fn local_ip() -> Result<IpAddr, String> {
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     socket.connect("8.8.8.8:80").map_err(|e| e.to_string())?;
-    socket.local_addr().map(|addr| addr.ip()).map_err(|e| e.to_string())
+    socket
+        .local_addr()
+        .map(|addr| addr.ip())
+        .map_err(|e| e.to_string())
 }
 
 fn map_port(port: u16) -> Result<String, String> {

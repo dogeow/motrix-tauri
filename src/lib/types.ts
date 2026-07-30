@@ -6,6 +6,8 @@ export type TaskStatus =
   | "complete"
   | "removed";
 
+export type Category = "all" | "active" | "waiting" | "stopped";
+
 export interface Aria2Uri {
   uri: string;
   status: "used" | "waiting";
